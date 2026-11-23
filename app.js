@@ -194,12 +194,26 @@ function render() {
   if (activeTab === 'home') {
     bodyHtml = `
       <div class="v4-wrapper">
-        <!-- L1 顶部 4 枚极简状态胶囊（严格避让微信胶囊） -->
+        <!-- L1 顶部 4 枚「中文+数字」直白状态胶囊（零理解成本、绝不折行） -->
         <div class="hud-pills">
-          <div class="pill" id="hud-era">📅 ${state.age}岁</div>
-          <div class="pill" id="hud-cash">🪙 ${fmtMoney(state.cash)}</div>
-          <div class="pill" id="hud-health">❤️ <div class="mini-bar"><div class="mini-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div></div>
-          <div class="pill" id="hud-mood">${state.stats.mood >= 60 ? '😊' : state.stats.mood >= 35 ? '😐' : '😣'} ${state.stats.mood}</div>
+          <div class="pill" id="hud-era">
+            <span class="pill-label">年龄</span>
+            <span class="pill-val">${state.age}岁</span>
+          </div>
+          <div class="pill" id="hud-cash">
+            <span class="pill-label">现金</span>
+            <span class="pill-val">¥${fmtMoney(state.cash)}</span>
+          </div>
+          <div class="pill" id="hud-health">
+            <span class="pill-label">健康</span>
+            <span class="pill-val" style="color:${state.stats.health<30?'var(--red)':'var(--green)'}">${state.stats.health}</span>
+            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>
+          </div>
+          <div class="pill" id="hud-mood">
+            <span class="pill-label">心态</span>
+            <span class="pill-val" style="color:${state.stats.mood<35?'var(--red)':'var(--ink)'}">${state.stats.mood}</span>
+            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>
+          </div>
         </div>
 
         <!-- L2 全屏轻像素沉浸舞台 -->
@@ -282,10 +296,11 @@ function renderV5Drawer(actions, budget) {
 
   return `
     <div class="v5-drawer ${drawerOpen ? 'open' : ''}">
-      <svg class="torn-edge-svg" viewBox="0 0 390 16" preserveAspectRatio="none">
-        <path d="M0,16 L0,8 Q12,2 24,9 T48,7 T72,10 T96,6 T120,9 T144,5 T168,9 T192,6 T216,10 T240,5 T264,9 T288,6 T312,10 T336,5 T360,9 T390,7 L390,16 Z" fill="#faf6ee"/>
+      <svg class="torn-edge-svg" viewBox="0 0 390 13" preserveAspectRatio="none">
+        <path d="M0,13 L0,7 Q16,2 32,7 T64,6 T96,8 T128,5 T160,8 T192,5 T224,8 T256,5 T288,7 T320,5 T352,8 T390,6 L390,13 Z" fill="#faf6ee"/>
       </svg>
-      <div class="v5-tape-center"></div>
+      <div class="v5-tape-corner l"></div>
+      <div class="v5-tape-corner r"></div>
       <div class="v5-head">
         <b style="font-size:14px;">时间槽 (${draft.length}/${budget.available})</b>
         <div style="display:flex;gap:4px;">
@@ -314,8 +329,8 @@ function renderV5Drawer(actions, budget) {
       </div>
       <div class="v5-footer">
         <div class="v5-preview">
-          预计：🪙<b>${prev.cash>=0?'+':''}${fmtMoney(prev.cash)}</b> ❤️<b>${prev.health>=0?'+':''}${prev.health}</b> 😊<b>${prev.mood>=0?'+':''}${prev.mood}</b><br/>
-          结后疲劳：<b style="color:${prev.fatigueWarn?'var(--red)':'inherit'}">${prev.endFatigue}${prev.fatigueWarn?' ⚠️超线':''}</b>
+          预计：现金<b>${prev.cash>=0?'+':''}¥${fmtMoney(prev.cash)}</b> · 健康<b>${prev.health>=0?'+':''}${prev.health}</b> · 心态<b>${prev.mood>=0?'+':''}${prev.mood}</b><br/>
+          本季后疲劳：<b style="color:${prev.fatigueWarn?'var(--red)':'inherit'}">${prev.endFatigue}/${state.origin.fatigueLimit}${prev.fatigueWarn?' (将损健康!)':''}</b>
         </div>
         <button class="btn-go" id="v5-exec">开始这一季 →</button>
       </div>
