@@ -192,9 +192,11 @@ function render() {
 
   let bodyHtml = '';
   if (activeTab === 'home') {
+    const livePrev = drawerOpen && draft.length > 0 ? previewDraft(state, draft) : null;
+    const fmtDelta = (v, prefix = '') => v > 0 ? `<span class="pill-delta pos">+${prefix}${v}</span>` : v < 0 ? `<span class="pill-delta neg">-${prefix}${Math.abs(v)}</span>` : '';
     bodyHtml = `
       <div class="v4-wrapper">
-        <!-- L1 顶部 4 枚「中文+数字」直白状态胶囊（零理解成本、绝不折行） -->
+        <!-- L1 顶部 4 枚「中文+数字」状态胶囊（排程时直接在顶部显示实时变动浮标！） -->
         <div class="hud-pills">
           <div class="pill" id="hud-era">
             <span class="pill-label">年龄</span>
@@ -203,16 +205,17 @@ function render() {
           <div class="pill" id="hud-cash">
             <span class="pill-label">现金</span>
             <span class="pill-val">¥${fmtMoney(state.cash)}</span>
+            ${livePrev && livePrev.cash !== 0 ? `<span class="pill-delta ${livePrev.cash>0?'pos':'neg'}">${livePrev.cash>0?'+':'-'}¥${fmtMoney(Math.abs(livePrev.cash))}</span>` : ''}
           </div>
           <div class="pill" id="hud-health">
             <span class="pill-label">健康</span>
             <span class="pill-val" style="color:${state.stats.health<30?'var(--red)':'var(--green)'}">${state.stats.health}</span>
-            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>
+            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health) : `<div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>`}
           </div>
           <div class="pill" id="hud-mood">
             <span class="pill-label">心态</span>
             <span class="pill-val" style="color:${state.stats.mood<35?'var(--red)':'var(--ink)'}">${state.stats.mood}</span>
-            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>
+            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood) : `<div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>`}
           </div>
         </div>
 
@@ -221,6 +224,7 @@ function render() {
           <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
           <div class="film-overlay"></div>
           <div class="film-lightleak"></div>
+          ${!drawerOpen ? `<button class="news-btn" id="btn-news">📰 简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
           <div class="hero-anchor ${heroHop ? 'hop' : ''}" id="hero-tap">
             ${bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : ''}
             ${spUrl ? `<img class="hero-sprite" src="${spUrl}" />` : ''}
@@ -230,16 +234,12 @@ function render() {
           <div class="date-stamp">${stamp}</div>
         </div>
 
-        <!-- L3 拍立得厚白边 + 两角和纸胶带 + 全场唯一主按钮 -->
+        <!-- L3 拍立得厚白边：彻底删掉金融符号，只留温柔手写标题 + 唯一主按钮 -->
         <div class="polaroid-margin">
           <div class="washi-tape left"></div>
           <div class="washi-tape right"></div>
           <div class="season-caption">${getSeasonSubtitle(state)}</div>
-          <div class="season-sub">
-            ${era.name} · 房${trendIcon(era.houseTrend)} 金${trendIcon(era.goldTrend)}
-            ${budget.commuteLocked ? ' · 🚇通勤锁1格' : ''}
-            ${budget.babyLock ? ' · 🍼育儿锁1格' : ''}
-          </div>
+          ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '🚇 远郊通勤占1格' : ''}${budget.babyLock ? ' 🍼 育儿照护占1格' : ''}</div>` : ''}
           <button class="cta-main" id="btn-open-drawer">${getMainCtaText(state)}</button>
         </div>
 
@@ -322,17 +322,16 @@ function renderV5Drawer(actions, budget) {
       <div class="v5-cards">
         ${visible.map(a => `
           <button class="action-card" data-add="${a.id}" ${a.disabled || draft.length >= budget.available ? 'disabled' : ''}>
-            <div class="ac-top"><span>${a.name}</span><span style="color:${a.costCash>0?'var(--accent)':'var(--green)'}">${a.costCash>0?'-'+fmtMoney(a.costCash):'免费'}</span></div>
-            <div class="ac-sub">${a.preview}</div>
+            <div class="ac-top"><span>${a.name}</span><span style="color:${a.costCash>0?'var(--accent)':'var(--green)'}">${a.costCash>0?'-¥'+fmtMoney(a.costCash):'免费'}</span></div>
+            <div class="chip-row">
+              ${(a.chips || []).map(c => `<span class="fx-chip ${c.k}">${c.t}</span>`).join('')}
+            </div>
           </button>
         `).join('')}
       </div>
       <div class="v5-footer">
-        <div class="v5-preview">
-          预计：现金<b>${prev.cash>=0?'+':''}¥${fmtMoney(prev.cash)}</b> · 健康<b>${prev.health>=0?'+':''}${prev.health}</b> · 心态<b>${prev.mood>=0?'+':''}${prev.mood}</b><br/>
-          本季后疲劳：<b style="color:${prev.fatigueWarn?'var(--red)':'inherit'}">${prev.endFatigue}/${state.origin.fatigueLimit}${prev.fatigueWarn?' (将损健康!)':''}</b>
-        </div>
-        <button class="btn-go" id="v5-exec">开始这一季 →</button>
+        ${prev.fatigueWarn ? `<div class="v5-warn">⚠️ 本季安排过满（疲劳将达 ${prev.endFatigue}/${state.origin.fatigueLimit}），会额外损耗健康</div>` : ''}
+        <button class="btn-go" id="v5-exec">开始这一季${draft.length ? `（已排 ${draft.length}/${budget.available}）` : ' →'}</button>
       </div>
     </div>
   `;
@@ -472,7 +471,8 @@ function bindMainEvents(actions, budget, cornerSticker) {
   bind('#btn-open-drawer', () => { drawerOpen = true; render(); });
   bind('#drawer-mask', () => { drawerOpen = false; render(); });
   bind('#toast-close', () => { toastMsg = ''; render(); });
-  bind('#hud-era', () => showToast(getNextYearHint(state)));
+  bind('#hud-era', openEraNewspaper);
+  bind('#btn-news', openEraNewspaper);
   bind('#hud-cash', () => { if (state.totalTurns >= 1 || state.age > 6) { activeTab = 'assets'; render(); } });
   bind('#hero-tap', () => {
     heroHop = true;
@@ -1035,6 +1035,33 @@ function openCitySheet() {
       b.onclick = () => { state.cityTier = Number(b.dataset.ct); clearOverlay(); showToast(`迁居至${CITIES[state.cityTier].name.slice(0,4)}`); };
     });
   });
+}
+
+// 独立「📰 时代简报」手账剪报弹窗（彻底移出拍立得白边）
+function openEraNewspaper() {
+  const era = getCurrentEra(state);
+  const stamp = getDateStamp(state.age, state.subTurn);
+  const houseWord = era.houseTrend === 'hot' ? '强势上涨（早买房吃满增值）' : era.houseTrend === 'up' ? '温和回暖' : era.houseTrend === 'down' ? '回调横盘（慎追高）' : '整体平稳';
+  const goldWord = era.goldTrend === 'hot' ? '避险大涨（囤金黄金窗口）' : era.goldTrend === 'up' ? '稳步走高' : '区间震荡';
+  mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
+    <div class="newspaper-box">
+      <div class="newspaper-head">
+        <b style="font-size:16px;">📰 时代简报 · ${era.name}</b>
+        <span style="font-family:monospace;font-size:12px;color:var(--muted);">${stamp}</span>
+      </div>
+      <p style="font-size:13px;margin:0 0 10px;line-height:1.6;">${getNextYearHint(state)}</p>
+      <div class="grid-2">
+        <div class="kv"><span>楼市行情</span><b>${houseWord.slice(0,4)}</b></div>
+        <div class="kv"><span>黄金走势</span><b>${goldWord.slice(0,4)}</b></div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5;">
+        · 楼市：${houseWord}<br/>
+        · 黄金（当前 ${state.goldPrice} 元/克）：${goldWord}<br/>
+        · 理财年化参考：${(era.finRate * 100).toFixed(1)}%
+      </div>
+    </div>
+    <button class="btn primary" id="n-ok" style="width:100%;">收起简报</button>
+  </div></div>`, host => { host.querySelector('#n-ok').onclick = clearOverlay; });
 }
 
 // ===== 终章「人生纪念册」=====

@@ -224,15 +224,17 @@ export function updateMilestones(state) {
   }
 }
 
-function expectedGainText(state, key, label, extra = 0) {
+function statChip(state, key, label, extra = 0) {
   const cur = key === 'dream' ? state.dreamSkill : state.stats[key];
   let g = cur < 60 ? 2 : (cur < 85 ? 1 : 0);
   if (extra > 0 && cur < 85) g += extra;
   if (state.stats.mood < 30 && state.origin.id !== 'working' && g > 1) g = Math.floor(g / 2);
   if (cur >= 85) {
-    return (state.halfProgress[key] || 0) >= 1 ? `${label} +1（冲刺突破）` : `${label} 高阶积累（再练1次+1）`;
+    return (state.halfProgress[key] || 0) >= 1
+      ? { t: `${label} +1`, k: 'pos' }
+      : { t: `${label} 高阶蓄力`, k: 'neu' };
   }
-  return `${label} +${g}`;
+  return { t: `${label} +${g}`, k: 'pos' };
 }
 
 export function getAvailableActions(state) {
@@ -242,64 +244,124 @@ export function getAvailableActions(state) {
   const isElder = state.age >= 51;
   const isWorking = state.age >= state.gradAge && !state.retired;
 
-  // 1. 成长与学习（全部动态计算精确大白话，杜绝 <85 等策划黑话）
+  // 1. 成长与学习（结构化红绿胶囊，一眼扫颜色即懂）
   if (isChild) {
-    actions.push({ id: 'study_self', cat: '1.成长与学习', name: '课业自习', costCash: 0, preview: `${expectedGainText(state, 'knowledge', '学识')} · 心态 -1 · 疲劳 +1` });
+    actions.push({
+      id: 'study_self', cat: '1.成长与学习', name: '课业自习', costCash: 0,
+      chips: [statChip(state, 'knowledge', '学识'), { t: '心态 -1', k: 'neg' }, { t: '疲劳 +1', k: 'neu' }]
+    });
     const canTutor = state.tutoredThisYear < state.origin.eduLimit;
     const tutorFee = state.talent.id === 't_tutor' ? 250 : 500;
     const tutorMood = state.talent.id === 't_book' ? 1 : 2;
-    const tutorTip = state.stats.knowledge < 85
-      ? `${expectedGainText(state, 'knowledge', '学识', 1)}（名师提速） · 心态 -${tutorMood} · 疲劳 +1`
-      : `学识已达高阶，补习无额外提速 · 心态 -${tutorMood}`;
-    actions.push({ id: 'study_tutor', cat: '1.成长与学习', name: `付费补习 (本年 ${state.tutoredThisYear}/${state.origin.eduLimit})`, costCash: tutorFee, disabled: !canTutor, preview: tutorTip });
+    const tutorChips = state.stats.knowledge < 85
+      ? [statChip(state, 'knowledge', '学识', 1), { t: '名师提速', k: 'gold' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
+      : [{ t: '已达高阶', k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }];
+    actions.push({
+      id: 'study_tutor', cat: '1.成长与学习', name: `付费补习 (${state.tutoredThisYear}/${state.origin.eduLimit})`, costCash: tutorFee, disabled: !canTutor,
+      chips: tutorChips
+    });
     if (state.age >= 15) {
-      actions.push({ id: 'gaokao_sprint', cat: '1.成长与学习', name: '考前冲刺', costCash: 0, preview: `${expectedGainText(state, 'knowledge', '学识', 1)} · 留存高考冲刺经历 · 疲劳 +2` });
+      actions.push({
+        id: 'gaokao_sprint', cat: '1.成长与学习', name: '考前冲刺', costCash: 0,
+        chips: [statChip(state, 'knowledge', '学识', 1), { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
+      });
     }
   } else if (isAdult) {
-    actions.push({ id: 'pro_self', cat: '1.成长与学习', name: '专业自学', costCash: 0, preview: `${expectedGainText(state, 'pro', '专业')} · 心态 -1 · 疲劳 +1` });
-    actions.push({ id: 'pro_course', cat: '1.成长与学习', name: '导师项目课 / 学AI', costCash: 500, preview: `${expectedGainText(state, 'pro', '专业', 1)} · 攒1条晋升项目经历` });
+    actions.push({
+      id: 'pro_self', cat: '1.成长与学习', name: '专业自学', costCash: 0,
+      chips: [statChip(state, 'pro', '专业'), { t: '心态 -1', k: 'neg' }, { t: '疲劳 +1', k: 'neu' }]
+    });
+    actions.push({
+      id: 'pro_course', cat: '1.成长与学习', name: '导师项目课 / 学AI', costCash: 500,
+      chips: [statChip(state, 'pro', '专业', 1), { t: '项目经历 +1', k: 'gold' }, { t: '心态 -2', k: 'neg' }]
+    });
   } else {
-    actions.push({ id: 'elder_uni', cat: '1.成长与学习', name: '老年大学 / 防骗课', costCash: 200, preview: `${expectedGainText(state, 'knowledge', '学识')} · 心态 +2 · 提升防骗力` });
+    actions.push({
+      id: 'elder_uni', cat: '1.成长与学习', name: '老年大学 / 防骗课', costCash: 200,
+      chips: [statChip(state, 'knowledge', '学识'), { t: '心态 +2', k: 'pos' }, { t: '防骗', k: 'gold' }]
+    });
   }
 
   // 2. 职业与搞钱
   if (isChild) {
     const pay = state.origin.id === 'poor' ? 150 : 100;
-    actions.push({ id: 'chores', cat: '2.职业与搞钱', name: state.age <= 12 ? '帮做家务换零花' : '假期兼职/二手课本', costCash: 0, preview: `零花钱 +${pay}元 · ${expectedGainText(state, 'selfCare', '自理')} · 疲劳 +1` });
+    actions.push({
+      id: 'chores', cat: '2.职业与搞钱', name: state.age <= 12 ? '做家务换零花' : '假期兼职', costCash: 0,
+      chips: [{ t: `现金 +¥${pay}`, k: 'pos' }, statChip(state, 'selfCare', '自理'), { t: '疲劳 +1', k: 'neu' }]
+    });
   } else if (isWorking) {
     const otPay = Math.round((state.overtimeThisYear < 4 ? 3000 : 1800) * (state.cityTier === 1 ? 1.2 : 1.0));
-    actions.push({ id: 'overtime', cat: '2.职业与搞钱', name: `加班/接副业 (本年 ${state.overtimeThisYear}/8)`, costCash: 0, disabled: state.overtimeThisYear >= 8, preview: `现金 +${otPay}元 · 健康 -1 · 心态 -2 · 疲劳 +${state.cityTier === 1 ? 4 : 3}` });
+    actions.push({
+      id: 'overtime', cat: '2.职业与搞钱', name: `加班 / 副业 (${state.overtimeThisYear}/8)`, costCash: 0, disabled: state.overtimeThisYear >= 8,
+      chips: [{ t: `现金 +¥${otPay}`, k: 'pos' }, { t: '健康 -1', k: 'neg' }, { t: `疲劳 +${state.cityTier === 1 ? 4 : 3}`, k: 'neg' }]
+    });
   } else if (isElder && state.retired && (state.track?.id === 'longtail' || state.jobLevel >= 4)) {
-    actions.push({ id: 'rehire_work', cat: '2.职业与搞钱', name: '专家返聘/顾问', costCash: 0, preview: '现金 +6,000元 · 疲劳 +2 · 发挥余热' });
+    actions.push({
+      id: 'rehire_work', cat: '2.职业与搞钱', name: '专家返聘顾问', costCash: 0,
+      chips: [{ t: '现金 +¥6,000', k: 'pos' }, { t: '疲劳 +2', k: 'neu' }]
+    });
   }
 
   // 3. 情感与社交
-  actions.push({ id: 'accompany_parents', cat: '3.情感与社交', name: '陪伴父母', costCash: 0, preview: '父母亲密 +4 · 心态 +2 · 攒共同经历' });
-  actions.push({ id: 'accompany_friend', cat: '3.情感与社交', name: isChild ? '和同桌死党玩耍' : '约老友重聚', costCash: isChild ? 0 : 200, preview: `旧友亲密 +4 · ${expectedGainText(state, 'expr', '表达')} · 心态 +2` });
+  actions.push({
+    id: 'accompany_parents', cat: '3.情感与社交', name: '陪伴父母', costCash: 0,
+    chips: [{ t: '亲密 +4', k: 'pos' }, { t: '心态 +2', k: 'pos' }, { t: '共同经历', k: 'gold' }]
+  });
+  actions.push({
+    id: 'accompany_friend', cat: '3.情感与社交', name: isChild ? '和同桌玩耍' : '约老友重聚', costCash: isChild ? 0 : 200,
+    chips: [{ t: '亲密 +4', k: 'pos' }, statChip(state, 'expr', '表达'), { t: '心态 +2', k: 'pos' }]
+  });
   if (state.age >= 19 && state.relations.partner) {
-    actions.push({ id: 'date_partner', cat: '3.情感与社交', name: state.relations.partner.married ? '夫妻约会保温' : '恋爱深度约会', costCash: 300, preview: '伴侣亲密 +5 · 心态 +3 · 攒共同经历' });
+    actions.push({
+      id: 'date_partner', cat: '3.情感与社交', name: state.relations.partner.married ? '夫妻约会' : '恋爱约会', costCash: 300,
+      chips: [{ t: '伴侣亲密 +5', k: 'pos' }, { t: '心态 +3', k: 'pos' }]
+    });
   }
   if (isElder) {
-    actions.push({ id: 'square_dance', cat: '3.情感与社交', name: '跳广场舞 / 建老年圈', costCash: 0, preview: '健康 +2 · 心态 +2 · 抵消退休孤独' });
+    actions.push({
+      id: 'square_dance', cat: '3.情感与社交', name: '跳广场舞建圈', costCash: 0,
+      chips: [{ t: '健康 +2', k: 'pos' }, { t: '心态 +2', k: 'pos' }, { t: '抗孤独', k: 'gold' }]
+    });
   }
 
   // 4. 家庭与育儿
   if (state.child && state.age - state.child.bornAge <= 18) {
-    actions.push({ id: 'tutor_kid', cat: '4.家庭与育儿', name: '辅导孩子作业', costCash: 0, preview: '孩子学业 +4 · 自身心态 -2 · 疲劳 +2' });
-    actions.push({ id: 'play_kid', cat: '4.家庭与育儿', name: '高质量陪娃', costCash: 100, preview: '孩子心态 +4 · 亲子羁绊 +4 · 心态 +2' });
+    actions.push({
+      id: 'tutor_kid', cat: '4.家庭与育儿', name: '辅导孩子作业', costCash: 0,
+      chips: [{ t: '娃学业 +4', k: 'pos' }, { t: '心态 -2', k: 'neg' }, { t: '疲劳 +2', k: 'neu' }]
+    });
+    actions.push({
+      id: 'play_kid', cat: '4.家庭与育儿', name: '高质量陪娃', costCash: 100,
+      chips: [{ t: '亲子羁绊 +4', k: 'pos' }, { t: '心态 +2', k: 'pos' }]
+    });
   }
 
   // 5. 梦想专精
-  actions.push({ id: 'train_dream', cat: '5.梦想专精', name: state.activeDreams.length ? `追梦训练 (${state.activeDreams[0].name})` : '少年梦想启蒙', costCash: isChild ? 0 : 300, preview: `${expectedGainText(state, 'dream', '梦想专长')} · 心态 +1 · 疲劳 +1` });
+  actions.push({
+    id: 'train_dream', cat: '5.梦想专精', name: state.activeDreams.length ? `追梦 (${state.activeDreams[0].name})` : '少年梦想启蒙', costCash: isChild ? 0 : 300,
+    chips: [statChip(state, 'dream', '专长'), { t: '心态 +1', k: 'pos' }, { t: '疲劳 +1', k: 'neu' }]
+  });
 
   // 6. 身心与生活
-  actions.push({ id: 'exercise', cat: '6.身心与生活', name: isElder ? '太极/八段锦/散步' : '体育锻炼/夜跑', costCash: 0, preview: `健康 +${state.talent.id === 't_health' ? 3 : 2} · 心态 +1 · 疲劳 -2` });
-  actions.push({ id: 'rest', cat: '6.身心与生活', name: '完整休息放空', costCash: 0, preview: `心态 +3 · 疲劳 -${state.house?.buffActive ? 5 : 4}` });
+  actions.push({
+    id: 'exercise', cat: '6.身心与生活', name: isElder ? '太极 / 散步' : '体育锻炼', costCash: 0,
+    chips: [{ t: `健康 +${state.talent.id === 't_health' ? 3 : 2}`, k: 'pos' }, { t: '疲劳 -2', k: 'pos' }]
+  });
+  actions.push({
+    id: 'rest', cat: '6.身心与生活', name: '完整休息放空', costCash: 0,
+    chips: [{ t: '心态 +3', k: 'pos' }, { t: `疲劳 -${state.house?.buffActive ? 5 : 4}`, k: 'pos' }]
+  });
   if (state.age >= 26 && state.age <= 55) {
-    actions.push({ id: 'pub_drink', cat: '6.身心与生活', name: '去小酒馆喝酒减压', costCash: 300, preview: `心态 +6 · 疲劳 -3 · 健康 -${state.pubStreak >= 1 ? 2 : 1}` });
+    actions.push({
+      id: 'pub_drink', cat: '6.身心与生活', name: '去小酒馆微醺', costCash: 300,
+      chips: [{ t: '心态 +6', k: 'pos' }, { t: '疲劳 -3', k: 'pos' }, { t: `健康 -${state.pubStreak >= 1 ? 2 : 1}`, k: 'neg' }]
+    });
   }
   if (isElder && state.age >= 60) {
-    actions.push({ id: 'world_trip', cat: '6.身心与生活', name: '环游世界一站', costCash: 80000, preview: '花 8 万圆梦旅行 · 心态 +8 · 暗线进度 +1' });
+    actions.push({
+      id: 'world_trip', cat: '6.身心与生活', name: '环游世界一站', costCash: 80000,
+      chips: [{ t: '心态 +8', k: 'pos' }, { t: '圆梦进度 +1', k: 'gold' }]
+    });
   }
   return actions;
 }
