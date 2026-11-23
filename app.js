@@ -10,6 +10,7 @@ import {
 } from './engine.js';
 import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js';
 import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js';
+import { pxIcon } from './icons.js';
 
 const appEl = document.getElementById('app');
 
@@ -21,6 +22,7 @@ let activeCat = '1.成长与学习';
 let draft = [];
 let toastTimer = null;
 let toastMsg = '';
+let floatPops = []; // 主角身旁彩色上浮飘字
 let heroHop = false;
 let albumBounce = false;
 
@@ -80,6 +82,32 @@ function getSeasonSubtitle(s) {
 
 function trendIcon(t) {
   return t === 'hot' ? '🔥↑↑' : t === 'up' ? '📈↑' : t === 'down' ? '📉↓' : '➡️平';
+}
+
+function getGoalHint(s) {
+  const toy = s.gender === 'female' ? '芭比娃娃' : '红色悠悠球';
+  if (s.age < 8) return `8 岁前留出 ¥80 零花钱，把心爱的「${toy}」带回家`;
+  if (s.age <= 18) return `距 18 岁高考还有 ${Math.max(0, 18 - s.age)} 年 · 当前学识 ${s.stats.knowledge}（名校线 75+）`;
+  if (s.age < s.gradAge) return `大学期间攒学识与表达，为 ${s.gradAge} 岁毕业择城打底`;
+  if (!s.house) return `攒够首付（普通房约 ¥15 万）安家，解锁小家空间拼图`;
+  if (s.age < 55) return `平衡职级（当前 L${s.jobLevel}）、伴侣亲密与健康，稳渡 35–42 岁风浪`;
+  if (!s.elderCircle && !(s.relations.partner?.married)) return `60 岁后去跳广场舞建老年圈，抵消退休孤独感`;
+  if (s.worldTrips < 1) return `保持健康 ≥60（冲 90 岁延寿），筹备一场环游世界之旅`;
+  return `慢享金色晚年，把这一辈子的回忆收进纪念册`;
+}
+
+function triggerFloatPops(summaryList) {
+  const pops = [];
+  for (const line of summaryList.slice(0, 4)) {
+    const k = /现金 \+|零花钱 \+|环游|梦想/.test(line) ? 'gold'
+      : /透支|孤独|健康 -|心态 -/.test(line) ? 'neg' : 'pos';
+    // 截短为极清爽的飘字短语
+    const short = line.replace(/^.*?：/, '').split('，')[0].slice(0, 14);
+    pops.push({ text: short, k });
+  }
+  if (!pops.length) pops.push({ text: '安稳度过这一季', k: 'pos' });
+  floatPops = pops;
+  setTimeout(() => { floatPops = []; render(); }, 1650);
 }
 
 function showToast(text) {
@@ -180,16 +208,17 @@ function render() {
   const unlockSocial = tCount >= 2 || state.age > 6;
   const unlockAlbum = tCount >= 2 || state.age > 6;
 
-  // 场景角落最多 1 个轻提示贴纸
+  // 场景角落最多 1 个轻提示贴纸（统一轻像素图标）
   let cornerSticker = null;
   if (state.age <= 12 && state.flipGameThisYear < 1 && tCount >= 1) {
-    cornerSticker = { id: 'flip', label: '🃏 课间翻卡博弈' };
+    cornerSticker = { id: 'flip', ico: 'card', label: '课间翻卡博弈' };
   } else if (state.age >= 22 && !state.house && state.cash + state.parentSupportLeft >= 150000) {
-    cornerSticker = { id: 'house', label: '🏠 够首付安家了' };
+    cornerSticker = { id: 'house', ico: 'home', label: '够首付安家了' };
   } else if (state.age >= 55) {
-    cornerSticker = { id: 'gomoku', label: '⚫ 公园石桌杀一盘' };
+    cornerSticker = { id: 'gomoku', ico: 'chess', label: '公园石桌杀一盘' };
   }
 
+  const mp = getMacroParams(state.age);
   let bodyHtml = '';
   if (activeTab === 'home') {
     const livePrev = drawerOpen && draft.length > 0 ? previewDraft(state, draft) : null;
@@ -224,26 +253,31 @@ function render() {
           <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
           <div class="film-overlay"></div>
           <div class="film-lightleak"></div>
-          ${!drawerOpen ? `<button class="news-btn" id="btn-news">📰 简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
+          ${!drawerOpen ? `<button class="news-btn" id="btn-news">${pxIcon('news', 15)} 简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
           <div class="hero-anchor ${heroHop ? 'hop' : ''}" id="hero-tap">
             ${bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : ''}
             ${spUrl ? `<img class="hero-sprite" src="${spUrl}" />` : ''}
             <div class="hero-shadow"></div>
           </div>
-          ${cornerSticker ? `<button class="corner-sticker" id="corner-btn">${cornerSticker.label}</button>` : ''}
+          ${floatPops.length ? `<div class="float-layer">${floatPops.map((p, idx) => `<div class="float-pop ${p.k}" style="animation-delay:${idx*140}ms;left:${48 + (idx%2===0?-8:8)}%;">${p.text}</div>`).join('')}</div>` : ''}
+          ${cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}
           <div class="date-stamp">${stamp}</div>
         </div>
 
-        <!-- L3 拍立得厚白边：彻底删掉金融符号，只留温柔手写标题 + 唯一主按钮 -->
+        <!-- L3 拍立得厚白边：温柔手写标题 + 季节进度点 + 唯一主按钮 -->
         <div class="polaroid-margin">
           <div class="washi-tape left"></div>
           <div class="washi-tape right"></div>
           <div class="season-caption">${getSeasonSubtitle(state)}</div>
-          ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '🚇 远郊通勤占1格' : ''}${budget.babyLock ? ' 🍼 育儿照护占1格' : ''}</div>` : ''}
+          <div class="season-dots">
+            ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
+            <span class="season-dots-label">本年第 ${state.subTurn}/${mp.subTurns} 季</span>
+          </div>
+          ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
           <button class="cta-main" id="btn-open-drawer">${getMainCtaText(state)}</button>
         </div>
 
-        <!-- 2 秒自动淡出飘字结算浮条 -->
+        <!-- 暖白手账纸条轻提示 -->
         ${toastMsg ? `<div class="toast-ribbon" id="toast-close">${toastMsg}</div>` : ''}
 
         <!-- V5 撕纸手账排程抽屉 -->
@@ -265,11 +299,11 @@ function render() {
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
         ${bodyHtml}
         <nav class="bottom-nav">
-          <button class="nav-tab ${activeTab==='home'?'active':''}" data-tab="home"><span class="ico">🏠</span><span>主页</span></button>
-          <button class="nav-tab ${activeTab==='assets'?'active':''} ${unlockAssets?'':'locked'}" data-tab="assets"><span class="ico">🎒</span><span>家与账</span></button>
-          <button class="nav-tab ${activeTab==='social'?'active':''} ${unlockSocial?'':'locked'}" data-tab="social"><span class="ico">❤️</span><span>亲友梦</span></button>
+          <button class="nav-tab ${activeTab==='home'?'active':''}" data-tab="home"><span class="ico">${pxIcon('home', 22)}</span><span>主页</span></button>
+          <button class="nav-tab ${activeTab==='assets'?'active':''} ${unlockAssets?'':'locked'}" data-tab="assets"><span class="ico">${pxIcon('bag', 22)}</span><span>家与账</span></button>
+          <button class="nav-tab ${activeTab==='social'?'active':''} ${unlockSocial?'':'locked'}" data-tab="social"><span class="ico">${pxIcon('heart', 22)}</span><span>亲友梦</span></button>
           <button class="nav-tab ${activeTab==='album'?'active':''} ${unlockAlbum?'':'locked'} ${albumBounce?'bounce':''}" data-tab="album">
-            <span class="ico">🎞️</span><span>相册</span>
+            <span class="ico">${pxIcon('film', 22)}</span><span>相册</span>
             <span class="nav-badge">${state.albumPhotos.length}</span>
           </button>
         </nav>
@@ -282,12 +316,12 @@ function render() {
 
 function renderV5Drawer(actions, budget) {
   const allCats = [
-    { key: '1.成长与学习', label: '📚学习' },
-    { key: '2.职业与搞钱', label: '💼搞钱' },
-    { key: '3.情感与社交', label: '💬亲友' },
-    { key: '4.家庭与育儿', label: '👶育儿' },
-    { key: '5.梦想专精', label: '⭐梦想' },
-    { key: '6.身心与生活', label: '🌿身心' }
+    { key: '1.成长与学习', ico: 'study', label: '学习' },
+    { key: '2.职业与搞钱', ico: 'work', label: '搞钱' },
+    { key: '3.情感与社交', ico: 'social', label: '亲友' },
+    { key: '4.家庭与育儿', ico: 'baby', label: '育儿' },
+    { key: '5.梦想专精', ico: 'dream', label: '梦想' },
+    { key: '6.身心与生活', ico: 'life', label: '身心' }
   ].filter(c => actions.some(a => a.cat === c.key));
 
   if (!allCats.some(c => c.key === activeCat) && allCats.length) activeCat = allCats[0].key;
@@ -309,6 +343,7 @@ function renderV5Drawer(actions, budget) {
           <button class="btn ghost" id="v5-clear">清空</button>
         </div>
       </div>
+      <div class="goal-note">${pxIcon('pin', 14)} <span>${getGoalHint(state)}</span></div>
       <div class="v5-slots">
         ${draft.map((id, i) => {
           const a = actions.find(x => x.id === id);
@@ -316,8 +351,8 @@ function renderV5Drawer(actions, budget) {
         }).join('')}
         ${Array.from({ length: Math.max(0, budget.available - draft.length) }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
       </div>
-      <div class="cat-pills">
-        ${allCats.map(c => `<button class="cat-pill ${activeCat===c.key?'active':''}" data-cat="${c.key}">${c.label}</button>`).join('')}
+      <div class="cat-pills" style="grid-template-columns: repeat(${allCats.length}, 1fr);">
+        ${allCats.map(c => `<button class="cat-pill ${activeCat===c.key?'active':''}" data-cat="${c.key}">${pxIcon(c.ico, 17)}<span>${c.label}</span></button>`).join('')}
       </div>
       <div class="v5-cards">
         ${visible.map(a => `
@@ -530,8 +565,8 @@ function bindMainEvents(actions, budget, cornerSticker) {
     if (res.triggeredEvent) {
       showApprovedEventV3(res.triggeredEvent, afterAll);
     } else {
-      const txt = res.summary.length ? res.summary.slice(0, 3).join(' · ') : '这一季平淡而安稳地度过了';
-      showToast(txt);
+      triggerFloatPops(res.summary);
+      render();
       afterAll();
     }
   });
