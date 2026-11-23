@@ -241,13 +241,37 @@ function triggerFloatPops(summaryList) {
 function showToast(text) {
   toastMsg = text;
   if (toastTimer) clearTimeout(toastTimer);
-  render();
-  toastTimer = setTimeout(() => { toastMsg = ''; render(); }, 2300);
+  const overlay = document.getElementById('phone-overlay-host');
+  if (overlay) {
+    document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
+    const frame = document.querySelector('.phone-frame');
+    if (frame) {
+      const el = document.createElement('div');
+      el.className = 'toast-ribbon';
+      el.style.zIndex = '95';
+      el.textContent = text;
+      el.onclick = () => { el.remove(); toastMsg = ''; };
+      frame.appendChild(el);
+    }
+  } else {
+    render();
+  }
+  toastTimer = setTimeout(() => {
+    toastMsg = '';
+    toastTimer = null;
+    if (document.getElementById('phone-overlay-host')) {
+      document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
+    } else {
+      render();
+    }
+  }, 2300);
 }
 
 function mountOverlay(html, bind) {
   const frame = document.querySelector('.phone-frame');
   if (!frame) return;
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; toastMsg = ''; }
+  document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
   clearOverlay();
   const div = document.createElement('div');
   div.id = 'phone-overlay-host';
@@ -262,7 +286,7 @@ function clearOverlay() {
 }
 
 // V3 关键时刻取景器定格弹窗（带四角合拢 + 暖白快门轻闪 + 35mm 齿孔 + 存入相册）
-function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone }) {
+function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode = false }) {
   const bgKey = getBgKey(state.age);
   const stageIdx = getSubStageIndex(state.age);
   const stamp = getDateStamp(state.age, state.subTurn);
@@ -272,22 +296,30 @@ function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone }) {
     state.albumPhotos.push({ age: state.age, stamp, title: photoCaption, stageIdx, bg: bgKey });
   }
 
+  const headHtml = storyMode
+    ? `<div class="story-head-meta">
+         <span class="story-chapter">${pxIcon('film', 13)} ${badge || '记忆定格'}</span>
+         <span class="story-stamp-mini">${stamp} · ${state.age}岁</span>
+       </div>
+       <h3 class="story-title">${title}</h3>`
+    : `<div><span class="tag hot">${badge || '关键时刻定格'}</span></div>
+       <h3 style="margin:0;font-size:17.5px;">${title}</h3>`;
+
   mountOverlay(`
     <div class="v3-overlay">
-      <div class="v3-viewfinder">
+      <div class="v3-viewfinder" style="${storyMode ? 'height:35%;' : ''}">
         <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
         <div class="film-overlay"></div>
         <div class="shutter-flash"></div>
         <div class="v3-brackets"><span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span></div>
-        <div class="hero-anchor" style="bottom:8%;">
-          ${spUrl ? `<img class="hero-sprite" style="height:148px;" src="${spUrl}" />` : ''}
+        <div class="hero-anchor" style="bottom:${storyMode ? '5%' : '8%'};">
+          ${spUrl ? `<img class="hero-sprite" style="height:${storyMode ? '118px' : '148px'};" src="${spUrl}" />` : ''}
         </div>
         <div class="date-stamp">${stamp}</div>
       </div>
       <div class="film-sprockets">${'<i></i>'.repeat(12)}</div>
-      <div class="v3-body">
-        <div><span class="tag hot">${badge || '关键时刻定格'}</span></div>
-        <h3 style="margin:0;font-size:18px;">${title}</h3>
+      <div class="v3-body ${storyMode ? 'story-reader' : ''}">
+        ${headHtml}
         <div id="v3-content">${bodyHtml}</div>
       </div>
     </div>
@@ -598,50 +630,141 @@ function renderV5Drawer(actions, budget) {
   `;
 }
 
+function trendWord(t) {
+  return t === 'hot' ? '强势走高' : t === 'up' ? '温和回暖' : t === 'down' ? '回调横盘' : '整体平稳';
+}
+
 function renderAssetsTab() {
   const nw = getNetWorth(state);
   const era = getCurrentEra(state);
   const sal = getCurrentMonthlySalary(state);
+  const stamp = getDateStamp(state.age, state.subTurn);
+  const toyLabel = state.gender === 'female' ? '8岁芭比娃娃' : '8岁悠悠球';
+
+  // 木格旧物盒固定 3 格（含已收旧物 + 待收集预告槽）
+  const keepsakes = state.items.map(name => ({
+    name,
+    ico: /芭比|娃娃/.test(name) ? 'doll' : /悠悠球/.test(name) ? 'yoyo' : 'dream',
+    tag: state.house?.buffActive ? '已上墙 Buff' : '已珍藏',
+    filled: true
+  }));
+  const emptyLabels = [
+    state.age < 8 ? `8岁节点·${toyLabel.slice(2)}` : '童年旧物格',
+    '人生纪念格',
+    '心愿留痕格'
+  ];
+  while (keepsakes.length < 3) {
+    keepsakes.push({ name: emptyLabels[keepsakes.length], filled: false });
+  }
+
+  const showFinanceTickets = state.age >= 18;
+
   return `
     <div class="tab-page">
-      <div class="sec-card">
-        <h4>🎒 家庭极简账本 <span class="tag">${CITIES[state.cityTier].name.slice(0,4)}</span></h4>
-        <div class="grid-2">
-          <div class="kv"><span>可用现金</span><b>${fmtMoney(state.cash)}</b></div>
-          <div class="kv"><span>家庭净资产</span><b style="color:var(--green)">${fmtMoney(nw)}</b></div>
-          <div class="kv"><span>房价趋势</span><b>${trendIcon(era.houseTrend)}</b></div>
-          <div class="kv"><span>金价 (${state.goldPrice}/g)</span><b>${trendIcon(era.goldTrend)}</b></div>
+      <!-- 怀旧家庭储蓄存折 -->
+      <div class="passbook">
+        <div class="passbook-top">
+          <div class="passbook-brand">
+            ${pxIcon('passbook', 20)}
+            <div>
+              <b>家庭活期存折</b>
+              <small>NO.${stamp.replace('.', '-')} · ${state.origin.name}起步</small>
+            </div>
+          </div>
+          <span class="passbook-city">${CITIES[state.cityTier].name.slice(0, 4)}</span>
         </div>
-        ${sal > 0 ? `<div style="margin-top:8px;font-size:12.5px;color:var(--muted);">当前税后月薪：<b>${sal.toLocaleString()} 元</b>（职级 L${state.jobLevel}）</div>` : ''}
-        ${state.retired ? `<div style="margin-top:8px;font-size:12.5px;color:var(--muted);">月度退休金：<b>${state.pensionMo.toLocaleString()} 元/月</b></div>` : ''}
-        ${state.debt > 0 ? `<div style="margin-top:6px;font-size:12.5px;color:var(--red);">应付欠款：<b>${fmtMoney(state.debt)}</b>（自动从后续收入优先扣除）</div>` : ''}
+        <div class="passbook-body">
+          <div class="pb-balances">
+            <div class="pb-cell">
+              <span>可用现金</span>
+              <strong>¥${fmtMoney(state.cash)}</strong>
+            </div>
+            <div class="pb-cell">
+              <span>家庭净资产</span>
+              <strong class="net">¥${fmtMoney(nw)}</strong>
+            </div>
+          </div>
+          <div class="pb-ledger-lines">
+            ${sal > 0 ? `<div class="pb-line"><span class="lb">税后月薪（L${state.jobLevel}）</span><b>¥${sal.toLocaleString()}/月</b></div>` : ''}
+            ${state.retired ? `<div class="pb-line"><span class="lb">月度退休金</span><b>¥${state.pensionMo.toLocaleString()}/月</b></div>` : ''}
+            ${state.goldGrams > 0 ? `<div class="pb-line"><span class="lb">黄金持仓（${Math.round(state.goldGrams)}g）</span><b>约 ¥${fmtMoney(state.goldGrams * state.goldPrice)}</b></div>` : ''}
+            ${state.debt > 0 ? `<div class="pb-line debt"><span>应付欠款（自动扣还）</span><b>-¥${fmtMoney(state.debt)}</b></div>` : ''}
+            ${!sal && !state.retired && !state.debt && state.goldGrams <= 0 ? `<div class="pb-line"><span class="lb">理财年化参考</span><b>${(era.finRate * 100).toFixed(1)}% · ${era.name}</b></div>` : ''}
+          </div>
+          <div class="pb-trends">
+            <span class="trend-pill ${era.houseTrend}">楼市：${trendWord(era.houseTrend)}</span>
+            <span class="trend-pill ${era.goldTrend}">金价 ¥${state.goldPrice}/g · ${trendWord(era.goldTrend)}</span>
+          </div>
+        </div>
       </div>
 
-      <div class="sec-card">
-        <h4>🏠 居住与小家空间拼图</h4>
-        <p style="margin:0 0 8px;font-size:12.5px;color:var(--muted);">
-          ${state.house ? `${state.house.name} · 现估值 ${fmtMoney(state.house.value)} · 余贷 ${fmtMoney(state.house.loan)}` : '当前租住/住家；买房后可布置空间网格并把童年旧物上墙！'}
+      <!-- 安家与小家手账卡 -->
+      <div class="deed-card">
+        <div class="sec-head-row">
+          <span class="sec-title">${pxIcon('home', 17)} 安家与小家空间</span>
+          ${state.house ? `<span class="tag up">${state.house.grid}×${state.house.grid} 网格</span>` : `<span class="tag">${state.age < 19 ? '成年解锁' : '租住/住家'}</span>`}
+        </div>
+        <p class="deed-desc">
+          ${state.house
+            ? `${state.house.name} · 估值 ¥${fmtMoney(state.house.value)} · 余贷 ¥${fmtMoney(state.house.loan)}${state.house.buffActive ? ' · 旧物已上墙' : ''}`
+            : state.age < 19
+              ? '毕业攒够首付后可购置小家，解锁空间拼图并把童年旧物挂上墙。'
+              : '当前暂未置业；买房后解锁空间拼图，可将 8 岁旧物上墙激活永久 Buff。'}
         </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${state.age >= state.gradAge ? `<button class="btn primary" id="t-house">房产买卖/置换</button>` : ''}
-          ${state.age >= 19 ? `<button class="btn secondary" id="t-puzzle">🏡 布置我的小家</button>` : ''}
-          ${state.age >= state.gradAge ? `<button class="btn" id="t-city">🚄 中途换城</button>` : ''}
-        </div>
+        ${(state.age >= 19) ? `
+          <div class="pill-actions">
+            ${state.age >= state.gradAge ? `<button class="pill-btn primary" id="t-house">${pxIcon('home', 14)} 房产买卖</button>` : ''}
+            <button class="pill-btn soft" id="t-puzzle">${pxIcon('spark', 14)} 布置小家</button>
+            ${state.age >= state.gradAge ? `<button class="pill-btn" id="t-city">${pxIcon('trip', 14)} 中途换城</button>` : ''}
+          </div>
+        ` : ''}
       </div>
 
-      <div class="sec-card">
-        <h4>🪙 黄金、彩票与情绪买单</h4>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${state.age >= state.gradAge ? `<button class="btn" id="t-gold">🪙 黄金买卖 (${Math.round(state.goldGrams)}g)</button>` : ''}
-          ${state.age >= 18 ? `<button class="btn" id="t-lottery" ${state.lotteryThisTurn?'disabled':''}>🎟️ 买彩票 (20元)</button>` : ''}
-          ${state.age >= 18 ? `<button class="btn" id="t-emo" ${state.emoBuyThisTurn?'disabled':''}>🛍️ 情绪买单</button>` : ''}
+      <!-- 理财与零花票券区 -->
+      ${showFinanceTickets ? `
+        <div class="deed-card">
+          <div class="sec-head-row">
+            <span class="sec-title">${pxIcon('gold', 17)} 避险、彩票与情绪买单</span>
+          </div>
+          <div class="ticket-row">
+            <button class="ticket-btn" id="t-gold" ${state.age >= state.gradAge ? '' : 'disabled'}>
+              ${pxIcon('gold', 20)}
+              <b>买卖黄金</b>
+              <small>${Math.round(state.goldGrams)}g · ¥${state.goldPrice}</small>
+            </button>
+            <button class="ticket-btn" id="t-lottery" ${state.lotteryThisTurn ? 'disabled' : ''}>
+              ${pxIcon('ticket', 20)}
+              <b>买张彩票</b>
+              <small>${state.lotteryThisTurn ? '本季已买' : '¥20 碰运气'}</small>
+            </button>
+            <button class="ticket-btn" id="t-emo" ${state.emoBuyThisTurn ? 'disabled' : ''}>
+              ${pxIcon('gift', 20)}
+              <b>情绪买单</b>
+              <small>${state.emoBuyThisTurn ? '本季已用' : '花钱回心态'}</small>
+            </button>
+          </div>
         </div>
-      </div>
+      ` : ''}
 
-      <div class="sec-card">
-        <h4>📦 童年旧物与人生留痕</h4>
-        <div style="font-size:12.5px;color:var(--muted);">
-          ${state.items.length ? state.items.map(i => `<span class="tag up">${i}</span>`).join(' ') : '还没有收藏旧物（8 岁将迎来专属旧物节点）'}
+      <!-- 木格旧物收藏盒 -->
+      <div class="wood-box">
+        <div class="wood-head">
+          <span>木格旧物盒</span>
+          <small>已收藏 ${state.items.length} 件</small>
+        </div>
+        <div class="wood-grid">
+          ${keepsakes.map(k => k.filled ? `
+            <div class="wood-cell filled">
+              ${pxIcon(k.ico, 26)}
+              <span class="w-nm">${k.name}</span>
+              <span class="w-tag">${k.tag}</span>
+            </div>
+          ` : `
+            <div class="wood-cell">
+              <span style="opacity:.35">${pxIcon('dream', 20)}</span>
+              <span class="w-empty">${k.name}</span>
+            </div>
+          `).join('')}
         </div>
       </div>
     </div>
@@ -649,40 +772,134 @@ function renderAssetsTab() {
 }
 
 function renderSocialTab(budget) {
+  const statList = [
+    { lb: '学识', val: state.stats.knowledge, color: '#4a7fc1' },
+    { lb: '专业', val: state.stats.pro, color: '#c9683a' },
+    { lb: '表达', val: state.stats.expr, color: '#d05d80' },
+    { lb: '自理理财', val: state.stats.selfCare, color: '#469062' }
+  ];
+
+  const people = [
+    {
+      ico: 'avatarParents', name: '父母', role: '一直牵挂着你',
+      val: state.relations.parents.intimacy, help: state.relations.parents.intimacy >= 60, alt: false
+    },
+    {
+      ico: 'avatarFriend', name: '同桌小周', role: state.age <= 18 ? '课间死党' : '半生挚友',
+      val: state.relations.friend.intimacy, help: state.relations.friend.intimacy >= 60, alt: true
+    }
+  ];
+  if (state.relations.partner) {
+    people.push({
+      ico: 'avatarPartner',
+      name: state.relations.partner.name,
+      role: state.relations.partner.married ? '已婚合账' : '热恋中',
+      val: state.relations.partner.intimacy,
+      help: state.relations.partner.intimacy >= 60,
+      alt: true
+    });
+  }
+  if (state.child) {
+    people.push({
+      ico: 'avatarKid',
+      name: `孩子 (${state.age - state.child.bornAge}岁)`,
+      role: '亲子档案',
+      val: state.child.bond,
+      kid: state.child,
+      alt: false
+    });
+  }
+
+  const rallyStops = [20, 40, 60, 80, 100];
+  const dreamPct = Math.min(100, state.dreamSkill);
+
   return `
     <div class="tab-page">
-      <div class="sec-card">
-        <h4>📊 四维能力与职场</h4>
-        <div class="grid-2">
-          <div class="kv"><span>学识</span><b>${state.stats.knowledge}</b></div>
-          <div class="kv"><span>专业(项目${state.projectCount})</span><b>${state.stats.pro}</b></div>
-          <div class="kv"><span>表达(情商)</span><b>${state.stats.expr}</b></div>
-          <div class="kv"><span>自理理财</span><b>${state.stats.selfCare}</b></div>
+      <!-- 四维能力成长手账 -->
+      <div class="stat-ledger">
+        <div class="sec-head-row">
+          <span class="sec-title">${pxIcon('study', 17)} 四维成长档案</span>
+          <span class="tag">${state.age >= state.gradAge && !state.retired ? `职级 L${state.jobLevel} · 项目 ${state.projectCount}` : `阶段：${getSubStage(state.age).name}`}</span>
         </div>
-        ${state.age >= state.gradAge && !state.retired && state.jobLevel < 5 ? `<button class="btn primary" id="t-promo" style="margin-top:8px;width:100%;">📈 申请职级晋升 (L${state.jobLevel+1})</button>` : ''}
+        <div class="stat-bars">
+          ${statList.map(st => `
+            <div class="stat-row">
+              <span class="s-lb">${st.lb}</span>
+              <div class="stat-track">
+                <i style="width:${Math.min(100, st.val)}%;background:${st.color};"></i>
+                <span class="tick" style="left:30%"></span>
+                <span class="tick" style="left:60%"></span>
+                <span class="tick" style="left:85%"></span>
+              </div>
+              <span class="s-val">${st.val}</span>
+            </div>
+          `).join('')}
+        </div>
+        ${state.age >= state.gradAge && !state.retired && state.jobLevel < 5 ? `
+          <div style="margin-top:10px;display:flex;justify-content:center;">
+            <button class="pill-btn primary" id="t-promo">${pxIcon('sprint', 14)} 申请晋升 L${state.jobLevel + 1}（需专业≥${PROMO_REQ[state.jobLevel + 1]}）</button>
+          </div>
+        ` : ''}
       </div>
 
-      <div class="sec-card">
-        <h4>❤️ 亲友、恋爱与孩子</h4>
-        <div class="grid-2" style="margin-bottom:8px;">
-          <div class="kv"><span>父母亲密</span><b>${state.relations.parents.intimacy}</b></div>
-          <div class="kv"><span>同桌小周</span><b>${state.relations.friend.intimacy}</b></div>
+      <!-- 千禧同学录 · 亲友头像卡 -->
+      <div class="yearbook-sec">
+        <div class="sec-head-row">
+          <span class="sec-title">${pxIcon('heart', 17)} 亲友同学录</span>
+          <span class="tag">亲密 ≥60 可求助</span>
         </div>
-        ${state.relations.partner ? `<div class="kv" style="margin-bottom:8px;"><span>❤️ ${state.relations.partner.name} (${state.relations.partner.married?'已婚合账':'恋爱中'})</span><b>亲密 ${state.relations.partner.intimacy}</b></div>` : ''}
-        ${state.child ? `<div class="kv" style="margin-bottom:8px;"><span>👶 孩子 (${state.age-state.child.bornAge}岁)</span><b>学${state.child.study} 心${state.child.mood} 羁${state.child.bond}</b></div>` : ''}
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${state.age >= 19 && !state.relations.partner ? `<button class="btn primary" id="t-love">💘 结识伴侣</button>` : ''}
-          ${state.relations.partner && !state.relations.partner.married ? `<button class="btn primary" id="t-marry">💍 谈婚论嫁</button>` : ''}
-          ${state.relations.partner?.married && !state.child && !state.choseDink ? `<button class="btn secondary" id="t-kid">👶 生娃 / 丁克抉择</button>` : ''}
-          ${budget.babyLock && state.relations.parents.intimacy >= 60 ? `<button class="btn secondary" id="t-help">🤝 请父母代班(释1格)</button>` : ''}
+        <div class="yearbook-grid">
+          ${people.map(p => `
+            <div class="yb-card ${p.alt ? 'alt' : ''}">
+              <div class="yb-top">
+                <div class="yb-avatar">${pxIcon(p.ico, 22)}</div>
+                <div class="yb-meta">
+                  <div class="yb-name">${p.name}</div>
+                  <div class="yb-role">${p.role}</div>
+                </div>
+              </div>
+              <div class="yb-bar-row">
+                <div class="yb-bar"><i style="width:${Math.min(100, p.val)}%;"></i></div>
+                <span class="yb-score">${p.val}</span>
+              </div>
+              ${p.kid ? `
+                <div class="yb-kid-stats">
+                  <span class="yb-kid-chip">学业 ${p.kid.study}</span>
+                  <span class="yb-kid-chip">心态 ${p.kid.mood}</span>
+                </div>
+              ` : p.help ? `<span class="yb-help-tag">★ 可互相帮衬</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <div class="pill-actions">
+          ${state.age >= 19 && !state.relations.partner ? `<button class="pill-btn primary" id="t-love">${pxIcon('heart', 14)} 结识伴侣</button>` : ''}
+          ${state.relations.partner && !state.relations.partner.married ? `<button class="pill-btn primary" id="t-marry">${pxIcon('heart', 14)} 谈婚论嫁</button>` : ''}
+          ${state.relations.partner?.married && !state.child && !state.choseDink ? `<button class="pill-btn soft" id="t-kid">${pxIcon('baby', 14)} 生娃 / 丁克抉择</button>` : ''}
+          ${budget.babyLock && state.relations.parents.intimacy >= 60 ? `<button class="pill-btn soft" id="t-help">${pxIcon('parents', 14)} 请父母代班(释1格)</button>` : ''}
         </div>
       </div>
 
-      <div class="sec-card">
-        <h4>⭐ 梦想主线（18岁后聚焦 1–2 条）</h4>
-        <div class="kv" style="margin-bottom:8px;"><span>当前梦想专长</span><b>${state.dreamSkill} ${state.dreamCompleted ? '🏆已通关' : ''}</b></div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">已开启：${state.activeDreams.map(d => d.name).join('、') || '暂未锁定'}</div>
-        <button class="btn" id="t-dream">选择 / 查看五梦想线</button>
+      <!-- 梦想打卡条 -->
+      <div class="dream-rally">
+        <div class="sec-head-row">
+          <span class="sec-title">${pxIcon('dream', 17)} 梦想打卡条</span>
+          <span class="tag ${state.dreamCompleted ? 'up' : ''}">专长 ${state.dreamSkill}${state.dreamCompleted ? ' · 已圆梦' : '/100'}</span>
+        </div>
+        <div class="rally-track">
+          <div class="rally-line"><i style="width:${dreamPct}%"></i></div>
+          ${rallyStops.map(pt => `
+            <div class="rally-stop ${state.dreamSkill >= pt ? 'lit' : ''}">
+              <div class="rally-dot">${state.dreamSkill >= pt ? '★' : pt}</div>
+              <small>${pt === 100 ? '圆梦' : pt + '分'}</small>
+            </div>
+          `).join('')}
+        </div>
+        <div class="dream-tags">
+          ${state.activeDreams.length
+            ? state.activeDreams.map(d => `<span class="tag up">${d.name}</span>`).join('')
+            : `<span style="font-size:11.5px;color:var(--muted);">暂未锁定方向（18 岁后最多聚焦 1–2 条主攻）</span>`}
+        </div>
+        <button class="pill-btn soft" id="t-dream">${pxIcon('dream', 14)} 查看 / 选定五梦想线</button>
       </div>
     </div>
   `;
@@ -883,55 +1100,79 @@ function bindMainEvents(actions, budget, cornerSticker) {
   });
 }
 
-// ===== 序幕开局页（选性别 + 出身抽签 + 天赋三选一）=====
+// ===== 千禧年出生扉页（序幕开局页：性别分流 + 出身抽签券 + 天赋三选一）=====
 function renderIntro() {
   const previewSp = sprites[pickedGender]?.[0] || '';
   appEl.innerHTML = `
     <div class="phone-stage-outer">
       <div class="phone-frame">
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
-        <div class="tab-page" style="padding-top:56px;">
-          <div style="text-align:center;margin-bottom:10px;">
-            <span class="tag">微信小程序 9:16 高保真原型</span>
-            <h2 style="margin:6px 0 2px;font-size:20px;">《这辈子 2.0》</h2>
-            <div style="font-size:12px;color:var(--muted);">每一岁，都是人生相册里的一张胶片</div>
-          </div>
-
-          <div class="sec-card" style="text-align:center;">
-            <div style="display:flex;justify-content:center;gap:10px;margin-bottom:8px;">
-              <button class="btn ${pickedGender==='male'?'primary':''}" id="g-m">👦 男主角 (悠悠球线)</button>
-              <button class="btn ${pickedGender==='female'?'primary':''}" id="g-f">👧 女主角 (芭比娃娃线)</button>
+        <div class="tab-page intro-page">
+          <!-- 千禧手账封面卡 -->
+          <div class="intro-cover">
+            <div class="intro-tape l"></div>
+            <div class="intro-tape r"></div>
+            <span class="intro-stamp">千禧记忆档案 · NO.1998</span>
+            <h2>《这辈子 2.0》</h2>
+            <div class="intro-sub">每一岁，都是人生相册里的一张胶片</div>
+            <div class="intro-portrait">
+              ${previewSp ? `<img src="${previewSp}" alt="主角预览" />` : ''}
             </div>
-            ${previewSp ? `<img src="${previewSp}" style="height:105px;image-rendering:pixelated;" />` : ''}
-          </div>
-
-          <div class="sec-card">
-            <h4>🎲 抽中出身：${pickedOrigin.name}
-              ${!unlockedSelfPick ? `<button class="btn ghost" id="btn-reroll" ${rerollUsed?'disabled':''}>${rerollUsed?'已重抽':'免费重抽一次'}</button>` : ''}
-            </h4>
-            ${unlockedSelfPick ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">
-              ${ORIGINS.map(o => `<button class="btn ${pickedOrigin.id===o.id?'primary':''}" style="padding:4px 8px;min-height:30px;font-size:12px;" data-po="${o.id}">${o.name}</button>`).join('')}
-            </div>` : ''}
-            <div style="font-size:12.5px;color:var(--muted);line-height:1.6;">
-              家底约 <b>${fmtMoney(pickedOrigin.familyAsset)}</b> · 父母首付支援 <b>${fmtMoney(pickedOrigin.downpaySupport)}</b><br/>
-              ✅ ${pickedOrigin.buff}<br/>
-              ⚠️ ${pickedOrigin.debuff}
+            <div class="gender-seg">
+              <button class="gender-opt ${pickedGender==='male'?'active':''}" id="g-m">${pxIcon('yoyo', 14)} 男主角 · 悠悠球</button>
+              <button class="gender-opt ${pickedGender==='female'?'active':''}" id="g-f">${pxIcon('doll', 14)} 女主角 · 芭比娃娃</button>
             </div>
           </div>
 
-          <div class="sec-card">
-            <h4>✨ 天赋三选一</h4>
-            <div style="display:flex;flex-direction:column;gap:6px;">
+          <!-- 出身抽签券 -->
+          <div class="origin-ticket">
+            <div class="origin-hd">
+              <div class="origin-title">
+                ${pxIcon('passbook', 16)}
+                <span>出生家境</span>
+                <span class="origin-badge">${pickedOrigin.name}</span>
+              </div>
+              ${!unlockedSelfPick
+                ? `<button class="pill-btn soft" id="btn-reroll" style="height:26px;padding:0 9px;font-size:11px;" ${rerollUsed?'disabled':''}>${rerollUsed?'已重抽':'免费重抽'}</button>`
+                : `<span class="tag up">已解锁自选</span>`}
+            </div>
+            ${unlockedSelfPick ? `
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
+                ${ORIGINS.map(o => `<button class="pill-btn ${pickedOrigin.id===o.id?'primary':''}" style="height:26px;padding:0 9px;font-size:11px;" data-po="${o.id}">${o.name}</button>`).join('')}
+              </div>
+            ` : ''}
+            <div class="origin-stats">
+              <div class="origin-kv"><span>家庭家底</span><b>约 ¥${fmtMoney(pickedOrigin.familyAsset)}</b></div>
+              <div class="origin-kv"><span>首付支援</span><b>¥${fmtMoney(pickedOrigin.downpaySupport)}</b></div>
+            </div>
+            <div class="origin-traits">
+              <div class="ot-line"><span class="ot-dot pos">＋</span><span>${pickedOrigin.buff}</span></div>
+              <div class="ot-line"><span class="ot-dot neg">!</span><span>${pickedOrigin.debuff}</span></div>
+            </div>
+          </div>
+
+          <!-- 天赋三选一 -->
+          <div class="origin-ticket">
+            <div class="sec-head-row" style="margin-bottom:7px;">
+              <span class="sec-title">${pxIcon('spark', 15)} 挑选初始天赋</span>
+              <span style="font-size:11px;color:var(--muted);">三选一</span>
+            </div>
+            <div class="talent-list">
               ${pickedOrigin.talents.map(t => `
-                <button class="action-card" style="${pickedTalent===t.id?'border-color:var(--accent);background:var(--accent-soft);':''}" data-t="${t.id}">
-                  <div class="ac-top"><span>${t.name}</span><span>${pickedTalent===t.id?'✅':''}</span></div>
-                  <div class="ac-sub">${t.desc}</div>
+                <button class="talent-opt ${pickedTalent===t.id?'active':''}" data-t="${t.id}">
+                  <span class="talent-radio"></span>
+                  <div>
+                    <b>${t.name}</b>
+                    <small>${t.desc}</small>
+                  </div>
                 </button>
               `).join('')}
             </div>
           </div>
 
-          <button class="cta-main" id="btn-start" style="width:100%;margin-top:4px;">6 岁正式起步 →</button>
+          <div class="intro-cta-wrap">
+            <button class="cta-main" id="btn-start">6 岁正式起步 →</button>
+          </div>
         </div>
       </div>
     </div>
@@ -950,20 +1191,47 @@ function renderIntro() {
   };
 }
 
-// ===== V3 大节点弹窗（已审槽位 / 高考 / 毕业 / 年末决算）=====
+// ===== 专属「人审剧情手账阅读器」（舒展行距 + 高属性/高羁绊金框选项）=====
 function showApprovedEventV3(ev, next) {
+  const cleanTitle = ev.title.replace(/\[.*?\]\s*/, '');
+  const chapterLabel = ev.priority === 'P0' ? '人生重要节点'
+    : ev.priority === 'P1' ? '珍藏记忆定格'
+    : '生活烟火切片';
+
+  const splitChoiceLabel = raw => {
+    const m = raw.match(/^(.*?)[（(]([^）)]+)[）)]$/);
+    return m ? { main: m[1].trim(), sub: m[2].trim() } : { main: raw, sub: '' };
+  };
+
   showV3Capture({
-    badge: `APPROVED · ${ev.priority}`,
-    title: ev.title,
-    photoCaption: ev.title.replace(/\[.*?\]\s*/, ''),
+    storyMode: true,
+    badge: chapterLabel,
+    title: cleanTitle,
+    photoCaption: cleanTitle,
     bodyHtml: `
-      <p style="font-size:13px;color:var(--muted);margin:0 0 10px;">${ev.summary}</p>
-      <div style="display:flex;flex-direction:column;gap:8px;">
+      <div class="story-paper">${ev.summary}</div>
+      <div class="story-choices">
         ${ev.choices.map((c, idx) => {
+          const isSpecial = Boolean(c.reqAny || c.reqRelation);
           let ok = true;
           if (c.reqAny) ok = Object.entries(c.reqAny).some(([k, v]) => state.stats[k] >= v);
           if (c.reqRelation) ok = (state.relations.partner?.intimacy >= c.reqRelation) || (state.child?.bond >= c.reqRelation);
-          return `<button class="action-card" data-ci="${idx}" ${ok?'':'disabled'}><div class="ac-top"><span>${c.label}</span></div></button>`;
+          const { main, sub } = splitChoiceLabel(c.label);
+          const cls = isSpecial ? (ok ? 'gold-choice' : 'locked-choice') : '';
+          const badgeHtml = isSpecial
+            ? (ok
+              ? `<span class="gold-badge">★ ${c.reqRelation ? '羁绊解锁' : '高属性解锁'}</span>`
+              : `<span class="lock-badge">${pxIcon('lock', 11)} 未达条件</span>`)
+            : '';
+          return `
+            <button class="story-choice ${cls}" data-ci="${idx}" ${ok ? '' : 'disabled'}>
+              <div class="sc-top">
+                <span class="sc-main">${main}</span>
+                ${badgeHtml}
+              </div>
+              ${sub ? `<div class="sc-sub">${sub}</div>` : ''}
+            </button>
+          `;
         }).join('')}
       </div>
     `,
@@ -1380,53 +1648,119 @@ function openEraNewspaper() {
   </div></div>`, host => { host.querySelector('#n-ok').onclick = clearOverlay; });
 }
 
-// ===== 终章「人生纪念册」=====
+// ===== 终章「可分享复古人生纪念册海报」=====
 function renderMemorial() {
   localStorage.setItem('zhebeizi_cleared', '1');
   unlockedSelfPick = true;
   const ev = evaluateEnding(state);
+  const stageIdx = getSubStageIndex(state.age);
+  const bgKey = getBgKey(state.age);
+  const spUrl = sprites[state.gender]?.[stageIdx] || '';
+  const birthYear = 1992;
+  const endYear = birthYear + state.age;
+  const grades = [
+    { lb: '安身立命', g: ev.scores.career.g, val: ev.scores.career.val },
+    { lb: '爱与羁绊', g: ev.scores.love.g, val: ev.scores.love.val },
+    { lb: '赤子之心', g: ev.scores.dream.g, val: ev.scores.dream.val },
+    { lb: '善始善终', g: ev.scores.health.g, val: ev.scores.health.val }
+  ];
+
   appEl.innerHTML = `
     <div class="phone-stage-outer">
       <div class="phone-frame">
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
-        <div class="tab-page" style="padding-top:56px;">
-          <div class="sec-card" style="text-align:center;">
-            <span class="tag hot">终章 · 人生纪念册</span>
-            <h2 style="margin:8px 0 4px;">${ev.title}</h2>
-            <div style="font-size:12.5px;color:var(--muted);">${state.endReason} · 出身 ${state.origin.name} → 净资产 ${fmtMoney(ev.netWorth)}</div>
-          </div>
+        <div class="tab-page" style="padding:52px 14px 20px;">
+          <!-- 复古 35mm 可分享人生纪念册海报 -->
+          <div class="poster-card" id="memorial-poster">
+            <div class="poster-film">${'<i></i>'.repeat(14)}</div>
+            <div class="poster-inner">
+              <div class="poster-top-meta">
+                <span>《这辈子 2.0》人生纪念册</span>
+                <span>${birthYear} — ${endYear} · ${state.age}岁</span>
+              </div>
 
-          <div class="memorial-grid">
-            <div class="mem-card"><div style="font-size:12px;">安身立命</div><div class="mem-grade">${ev.scores.career.g}</div><small>${ev.scores.career.val}分</small></div>
-            <div class="mem-card"><div style="font-size:12px;">爱与羁绊</div><div class="mem-grade">${ev.scores.love.g}</div><small>${ev.scores.love.val}分</small></div>
-            <div class="mem-card"><div style="font-size:12px;">赤子之心</div><div class="mem-grade">${ev.scores.dream.g}</div><small>${ev.scores.dream.val}分</small></div>
-            <div class="mem-card"><div style="font-size:12px;">善始善终</div><div class="mem-grade">${ev.scores.health.g}</div><small>${ev.scores.health.val}分</small></div>
-          </div>
+              <div class="poster-hero">
+                <div class="poster-photo">
+                  <div class="poster-photo-in">
+                    <img class="bg" src="./assets/bg/${bgKey}.jpg" />
+                    ${spUrl ? `<img class="sp" src="${spUrl}" />` : ''}
+                  </div>
+                </div>
+                <div class="poster-title-col">
+                  <span class="poster-seal">终章定格</span>
+                  <h2>${ev.title}</h2>
+                  <div class="poster-reason">${state.endReason}</div>
+                </div>
+              </div>
 
-          <div class="sec-card">
-            <h4>暗线因果链</h4>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              ${ev.darkChains.map(c => `<span class="tag ${c.ok?'up':''}">${c.ok?'✅':'⬜'} ${c.name}</span>`).join('')}
+              <div class="poster-arc">
+                <span>出身 ${state.origin.name} · ${state.gender === 'female' ? '女主线' : '男主线'}</span>
+                <b style="color:var(--green);">净资产 ¥${fmtMoney(ev.netWorth)}</b>
+              </div>
+
+              <div class="poster-grades">
+                ${grades.map(x => `
+                  <div class="pg-cell">
+                    <span>${x.lb}</span>
+                    <div class="pg-grade ${x.g}">${x.g}</div>
+                    <small>${x.val}分</small>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="poster-chains">
+                ${ev.darkChains.map(c => `
+                  <div class="chain-badge ${c.ok ? 'lit' : ''}">
+                    <span>${c.ok ? '★' : '○'}</span>
+                    <span>${c.name}</span>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="poster-foot-note">
+                <span>相册留影 ${state.albumPhotos.length} 张 · 旧物 ${state.items.length} 件</span>
+                <span>长按截屏即可分享给好友</span>
+              </div>
             </div>
+            <div class="poster-film">${'<i></i>'.repeat(14)}</div>
           </div>
 
-          <div class="sec-card">
-            <h4>人生树分叉重走</h4>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-              ${[18,30,50].map(a => `<button class="btn secondary" data-rb="${a}" ${state.branches[a]?'':'disabled'}>回 ${a} 岁</button>`).join('')}
+          <!-- 分享 & 人生树回溯 & 开启新一生 -->
+          <div class="deed-card">
+            <div class="sec-head-row">
+              <span class="sec-title">${pxIcon('film', 16)} 珍藏与人生树回溯</span>
+              <button class="pill-btn soft" id="btn-share-poster" style="height:28px;font-size:11px;">${pxIcon('share', 13)} 复制战绩文案</button>
             </div>
-            <button class="cta-main" id="btn-restart" style="width:100%;">开启新的一生（已解锁自选出身）</button>
+            <div class="pill-actions" style="margin-bottom:12px;">
+              ${[18, 30, 50].map(a => `<button class="pill-btn" data-rb="${a}" ${state.branches[a] ? '' : 'disabled'}>回到 ${a} 岁</button>`).join('')}
+            </div>
+            <div class="poster-actions">
+              <button class="cta-main" id="btn-restart" style="max-width:250px;width:78%;">开启新的一生（自选出身）</button>
+            </div>
           </div>
         </div>
+        ${toastMsg ? `<div class="toast-ribbon" id="toast-close">${toastMsg}</div>` : ''}
       </div>
     </div>
   `;
+
+  const tc = appEl.querySelector('#toast-close');
+  if (tc) tc.onclick = () => { toastMsg = ''; renderMemorial(); };
+
+  appEl.querySelector('#btn-share-poster').onclick = () => {
+    const text = `我在《这辈子 2.0》活到 ${state.age} 岁，达成结局「${ev.title}」（出身${state.origin.name} → 净资产 ¥${fmtMoney(ev.netWorth)}），四维评级：${grades.map(x => `${x.lb}${x.g}`).join(' / ')}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    showToast('复古战绩文案已复制，可直接截图上方海报分享！');
+  };
+
   appEl.querySelectorAll('[data-rb]').forEach(b => {
     b.onclick = () => {
       const a = Number(b.dataset.rb);
       const saved = JSON.parse(state.branches[a]);
       saved.branches = state.branches; saved.ended = false;
-      state = saved; activeTab = 'home'; render();
+      state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home'; render();
     };
   });
   appEl.querySelector('#btn-restart').onclick = () => {
