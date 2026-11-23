@@ -10,7 +10,7 @@ import {
 } from './engine.js';
 import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js';
 import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js';
-import { pxIcon } from './icons.js';
+import { pxIcon, chevDownIcon } from './icons.js';
 
 const appEl = document.getElementById('app');
 
@@ -18,7 +18,8 @@ let state = null;
 let sprites = { male: null, female: null };
 let activeTab = 'home'; // 'home' | 'assets' | 'social' | 'album'
 let drawerOpen = false;
-let activeCat = '1.成长与学习';
+let inspectedId = null; // 方案 A：单行预览条当前聚焦的行动卡 ID
+let moreMenuOpen = false; // 抽屉右上角 ··· 浮层菜单
 let draft = [];
 let toastTimer = null;
 let toastMsg = '';
@@ -68,32 +69,159 @@ function getMainCtaText(s) {
   return '安排这阵子';
 }
 
-function getSeasonSubtitle(s) {
+function getSeasonTitle(s) {
   const stage = getSubStage(s.age);
-  const moodWord = s.stats.fatigue >= s.origin.fatigueLimit ? '有点透支了，注意喘口气'
+  return `${stage.name} · 第 ${s.subTurn} 季`;
+}
+
+function getSeasonMood(s) {
+  return s.stats.fatigue >= s.origin.fatigueLimit ? '有点透支了，注意喘口气'
     : s.stats.mood >= 75 ? '阳光正好，心里踏实'
     : s.age <= 12 ? '放学后的风很温柔'
     : s.age <= 18 ? '黑板上的倒计时又少了一天'
     : s.age <= 35 ? '在城市里慢慢扎下根'
     : s.age <= 50 ? '扛起生活，也别忘了自己'
     : '慢下来，好好享受眼前的日子';
-  return `${stage.name} · 第 ${s.subTurn} 季  ${moodWord}`;
 }
 
 function trendIcon(t) {
   return t === 'hot' ? '🔥↑↑' : t === 'up' ? '📈↑' : t === 'down' ? '📉↓' : '➡️平';
 }
 
-function getGoalHint(s) {
+function getGoalMeta(s) {
   const toy = s.gender === 'female' ? '芭比娃娃' : '红色悠悠球';
-  if (s.age < 8) return `8 岁前留出 ¥80 零花钱，把心爱的「${toy}」带回家`;
-  if (s.age <= 18) return `距 18 岁高考还有 ${Math.max(0, 18 - s.age)} 年 · 当前学识 ${s.stats.knowledge}（名校线 75+）`;
-  if (s.age < s.gradAge) return `大学期间攒学识与表达，为 ${s.gradAge} 岁毕业择城打底`;
-  if (!s.house) return `攒够首付（普通房约 ¥15 万）安家，解锁小家空间拼图`;
-  if (s.age < 55) return `平衡职级（当前 L${s.jobLevel}）、伴侣亲密与健康，稳渡 35–42 岁风浪`;
-  if (!s.elderCircle && !(s.relations.partner?.married)) return `60 岁后去跳广场舞建老年圈，抵消退休孤独感`;
-  if (s.worldTrips < 1) return `保持健康 ≥60（冲 90 岁延寿），筹备一场环游世界之旅`;
-  return `慢享金色晚年，把这一辈子的回忆收进纪念册`;
+  if (s.age < 8) {
+    const pct = Math.min(100, Math.round((Math.max(0, s.cash) / 80) * 100));
+    return {
+      text: `8 岁前留出 ¥80 买「${toy}」`,
+      pct,
+      label: s.cash >= 80 ? '已达标' : `${Math.max(0, Math.round(s.cash))}/80`
+    };
+  }
+  if (s.age <= 18) {
+    return {
+      text: `距高考还有 ${Math.max(0, 18 - s.age)} 年 · 名校线学识 75`,
+      pct: Math.min(100, Math.round((s.stats.knowledge / 75) * 100)),
+      label: `${s.stats.knowledge}/75`
+    };
+  }
+  if (s.age < s.gradAge) {
+    return { text: `大学攒学识与表达，为 ${s.gradAge} 岁毕业择城打底`, pct: null, label: '' };
+  }
+  if (!s.house) {
+    const total = Math.max(0, s.cash + (s.parentSupportLeft || 0));
+    return {
+      text: `攒够 ¥15 万首付安家，解锁小家拼图`,
+      pct: Math.min(100, Math.round((total / 150000) * 100)),
+      label: `${fmtMoney(total)}/15万`
+    };
+  }
+  if (s.age < 55) {
+    return { text: `平衡职级（L${s.jobLevel}）、伴侣亲密与健康，稳渡中年风浪`, pct: null, label: '' };
+  }
+  if (!s.elderCircle && !(s.relations.partner?.married)) {
+    return { text: `60 岁后去跳广场舞建老年圈，抵消退休孤独感`, pct: null, label: '' };
+  }
+  if (s.worldTrips < 1) {
+    return { text: `保持健康 ≥60（冲 90 岁延寿），筹备环游世界`, pct: Math.min(100, Math.round((s.stats.health / 60) * 100)), label: `健 ${s.stats.health}/60` };
+  }
+  return { text: `慢享金色晚年，把这一辈子的回忆收进纪念册`, pct: null, label: '' };
+}
+
+const DOMAIN_STYLE = {
+  '1.成长与学习': { wellBg: '#eaf2fb', slotBg: '#e4eef9', slotFg: '#3a6eb0' },
+  '2.职业与搞钱': { wellBg: '#fcf4df', slotBg: '#f9edd0', slotFg: '#9e6d14' },
+  '3.情感与社交': { wellBg: '#fcebf0', slotBg: '#f9e1e9', slotFg: '#b8486b' },
+  '4.家庭与育儿': { wellBg: '#e8f4f8', slotBg: '#ddf0f6', slotFg: '#2e7b96' },
+  '5.梦想专精':   { wellBg: '#f2ecfa', slotBg: '#ebe2f8', slotFg: '#6f50a8' },
+  '6.身心与生活': { wellBg: '#e8f5ed', slotBg: '#dff1e6', slotFg: '#357e52' }
+};
+
+function getActionMeta(a, s) {
+  const ds = DOMAIN_STYLE[a.cat] || DOMAIN_STYLE['1.成长与学习'];
+  const map = {
+    study_self:        { ico: 'study',    short: '课业自习' },
+    study_tutor:       { ico: 'tutor',    short: '付费补习' },
+    gaokao_sprint:     { ico: 'sprint',   short: '考前冲刺' },
+    pro_self:          { ico: 'study',    short: '专业自学' },
+    pro_course:        { ico: 'tutor',    short: '项目/AI' },
+    elder_uni:         { ico: 'tutor',    short: '老年大学' },
+    chores:            { ico: 'coin',     short: s.age <= 12 ? '做家务' : '假期兼职' },
+    overtime:          { ico: 'work',     short: '加班副业' },
+    rehire_work:       { ico: 'work',     short: '专家返聘' },
+    accompany_parents: { ico: 'parents',  short: '陪伴父母' },
+    accompany_friend:  { ico: 'social',   short: s.age <= 18 ? '找同桌玩' : '约老友' },
+    date_partner:      { ico: 'heart',    short: s.relations.partner?.married ? '夫妻约会' : '恋爱约会' },
+    square_dance:      { ico: 'dance',    short: '跳广场舞' },
+    tutor_kid:         { ico: 'study',    short: '辅导作业' },
+    play_kid:          { ico: 'baby',     short: '陪娃玩' },
+    train_dream:       { ico: 'dream',    short: s.activeDreams.length ? '追梦专练' : '梦想启蒙' },
+    exercise:          { ico: 'exercise', short: s.age >= 51 ? '太极散步' : '体育锻炼' },
+    rest:              { ico: 'rest',     short: '完整休息' },
+    pub_drink:         { ico: 'pub',      short: '小酒馆' },
+    world_trip:        { ico: 'trip',     short: '环游世界' }
+  };
+  const m = map[a.id] || { ico: 'dream', short: a.name.slice(0, 4) };
+  return { ...ds, ...m };
+}
+
+// 为新手/当前状态标出 1–2 枚贴纸推荐角标（保持 克制，绝不泛滥）
+function getRecommendedActionMap(s, actions) {
+  const rec = {};
+  const has = id => actions.some(a => a.id === id && !a.disabled);
+  if (s.stats.fatigue >= s.origin.fatigueLimit - 2 || s.stats.mood < 40) {
+    if (has('rest')) rec.rest = '回血';
+  }
+  if (s.stats.health < 45 && has('exercise')) {
+    rec.exercise = '保健康';
+  }
+  if (Object.keys(rec).length < 2) {
+    if (s.age < 8 && has('chores')) rec.chores = '目标';
+    else if (s.age >= 15 && s.age <= 18 && has('gaokao_sprint')) rec.gaokao_sprint = '冲刺';
+    else if (s.age >= 8 && s.age <= 18 && has('study_self')) rec.study_self = '升学';
+    else if (s.age >= 19 && s.age <= 50 && !s.house && has('pro_course')) rec.pro_course = '提薪';
+    else if (s.age >= 60 && !s.elderCircle && !(s.relations.partner?.married) && has('square_dance')) rec.square_dance = '抗孤独';
+    else if (s.age >= 60 && s.worldTrips < 1 && s.cash >= 80000 && has('world_trip')) rec.world_trip = '心愿';
+    else if (has('accompany_parents') && s.relations.parents.intimacy < 60) rec.accompany_parents = '亲情';
+  }
+  return rec;
+}
+
+// 智能帮排：按当前目标与健康/心态自动填满空槽（新手救生圈 + 长局减负）
+function buildSmartDraft(s, actions, budget) {
+  const valid = id => actions.find(a => a.id === id && !a.disabled);
+  const picks = [];
+  let cashLeft = s.cash;
+  const tryPush = id => {
+    if (picks.length >= budget.available) return false;
+    const a = valid(id);
+    if (!a) return false;
+    if (a.costCash > 0 && cashLeft < a.costCash) return false;
+    picks.push(a.id);
+    cashLeft -= a.costCash;
+    return true;
+  };
+
+  if (s.stats.fatigue >= s.origin.fatigueLimit - 2 || s.stats.mood < 42) tryPush('rest');
+  if (s.stats.health < 50) tryPush('exercise');
+
+  const stagePriority = s.age <= 12
+    ? ['chores', 'study_self', 'accompany_friend', 'train_dream', 'accompany_parents', 'exercise']
+    : s.age <= 18
+      ? ['gaokao_sprint', 'study_self', 'accompany_friend', 'train_dream', 'rest', 'chores']
+      : s.age <= 50
+        ? ['pro_course', 'pro_self', 'date_partner', 'play_kid', 'overtime', 'exercise', 'accompany_parents', 'rest']
+        : ['square_dance', 'exercise', 'elder_uni', 'accompany_friend', 'train_dream', 'rest'];
+
+  for (const id of stagePriority) {
+    if (picks.length >= budget.available) break;
+    tryPush(id);
+  }
+  for (const a of actions) {
+    if (picks.length >= budget.available) break;
+    if (!a.disabled && a.costCash <= cashLeft) tryPush(a.id);
+  }
+  return picks;
 }
 
 function triggerFloatPops(summaryList) {
@@ -222,10 +350,11 @@ function render() {
   let bodyHtml = '';
   if (activeTab === 'home') {
     const livePrev = drawerOpen && draft.length > 0 ? previewDraft(state, draft) : null;
-    const fmtDelta = (v, prefix = '') => v > 0 ? `<span class="pill-delta pos">+${prefix}${v}</span>` : v < 0 ? `<span class="pill-delta neg">-${prefix}${Math.abs(v)}</span>` : '';
+    const fmtDelta = (v, label = '') => v > 0 ? `<span class="pill-delta pos">${label}+${v}</span>` : v < 0 ? `<span class="pill-delta neg">${label}-${Math.abs(v)}</span>` : '';
+    const ctaText = draft.length > 0 ? `继续安排 (${draft.length}/${budget.available})` : getMainCtaText(state);
     bodyHtml = `
       <div class="v4-wrapper">
-        <!-- L1 顶部 4 枚「中文+数字」状态胶囊（排程时直接在顶部显示实时变动浮标！） -->
+        <!-- L1 顶部统一 4 列直白状态栏（排程时下方浮出实时红绿变动角标） -->
         <div class="hud-pills">
           <div class="pill" id="hud-era">
             <span class="pill-label">年龄</span>
@@ -239,12 +368,14 @@ function render() {
           <div class="pill" id="hud-health">
             <span class="pill-label">健康</span>
             <span class="pill-val" style="color:${state.stats.health<30?'var(--red)':'var(--green)'}">${state.stats.health}</span>
-            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health) : `<div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>`}
+            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>
+            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健康 ') : ''}
           </div>
           <div class="pill" id="hud-mood">
             <span class="pill-label">心态</span>
-            <span class="pill-val" style="color:${state.stats.mood<35?'var(--red)':'var(--ink)'}">${state.stats.mood}</span>
-            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood) : `<div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>`}
+            <span class="pill-val" style="color:${state.stats.mood<35?'var(--red)':'var(--accent)'}">${state.stats.mood}</span>
+            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>
+            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心态 ') : ''}
           </div>
         </div>
 
@@ -253,34 +384,35 @@ function render() {
           <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
           <div class="film-overlay"></div>
           <div class="film-lightleak"></div>
-          ${!drawerOpen ? `<button class="news-btn" id="btn-news">${pxIcon('news', 15)} 简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
+          ${!drawerOpen ? `<button class="news-btn" id="btn-news">${pxIcon('news', 15)} 时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
           <div class="hero-anchor ${heroHop ? 'hop' : ''}" id="hero-tap">
             ${bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : ''}
             ${spUrl ? `<img class="hero-sprite" src="${spUrl}" />` : ''}
             <div class="hero-shadow"></div>
           </div>
           ${floatPops.length ? `<div class="float-layer">${floatPops.map((p, idx) => `<div class="float-pop ${p.k}" style="animation-delay:${idx*140}ms;left:${48 + (idx%2===0?-8:8)}%;">${p.text}</div>`).join('')}</div>` : ''}
-          ${cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}
+          ${!drawerOpen && cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}
           <div class="date-stamp">${stamp}</div>
         </div>
 
-        <!-- L3 拍立得厚白边：温柔手写标题 + 季节进度点 + 唯一主按钮 -->
+        <!-- L3 拍立得厚白边：单行标题 + 柔和副标题 + 季节进度点 + 唯一主按钮 -->
         <div class="polaroid-margin">
           <div class="washi-tape left"></div>
           <div class="washi-tape right"></div>
-          <div class="season-caption">${getSeasonSubtitle(state)}</div>
+          <div class="season-caption">${getSeasonTitle(state)}</div>
+          <div class="season-mood">${getSeasonMood(state)}</div>
           <div class="season-dots">
             ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
             <span class="season-dots-label">本年第 ${state.subTurn}/${mp.subTurns} 季</span>
           </div>
           ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
-          <button class="cta-main" id="btn-open-drawer">${getMainCtaText(state)}</button>
+          <button class="cta-main" id="btn-open-drawer">${ctaText}</button>
         </div>
 
         <!-- 暖白手账纸条轻提示 -->
         ${toastMsg ? `<div class="toast-ribbon" id="toast-close">${toastMsg}</div>` : ''}
 
-        <!-- V5 撕纸手账排程抽屉 -->
+        <!-- V5 方案 A：4 列手账贴纸盘排程抽屉 -->
         <div class="drawer-backdrop ${drawerOpen ? 'open' : ''}" id="drawer-mask"></div>
         ${renderV5Drawer(actions, budget)}
       </div>
@@ -293,12 +425,13 @@ function render() {
     bodyHtml = renderAlbumTab();
   }
 
+  const hideBottomNav = activeTab === 'home' && drawerOpen;
   appEl.innerHTML = `
     <div class="phone-stage-outer">
       <div class="phone-frame">
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
         ${bodyHtml}
-        <nav class="bottom-nav">
+        <nav class="bottom-nav ${hideBottomNav ? 'hidden-for-drawer' : ''}">
           <button class="nav-tab ${activeTab==='home'?'active':''}" data-tab="home"><span class="ico">${pxIcon('home', 22)}</span><span>主页</span></button>
           <button class="nav-tab ${activeTab==='assets'?'active':''} ${unlockAssets?'':'locked'}" data-tab="assets"><span class="ico">${pxIcon('bag', 22)}</span><span>家与账</span></button>
           <button class="nav-tab ${activeTab==='social'?'active':''} ${unlockSocial?'':'locked'}" data-tab="social"><span class="ico">${pxIcon('heart', 22)}</span><span>亲友梦</span></button>
@@ -315,58 +448,151 @@ function render() {
 }
 
 function renderV5Drawer(actions, budget) {
-  const allCats = [
-    { key: '1.成长与学习', ico: 'study', label: '学习' },
-    { key: '2.职业与搞钱', ico: 'work', label: '搞钱' },
-    { key: '3.情感与社交', ico: 'social', label: '亲友' },
-    { key: '4.家庭与育儿', ico: 'baby', label: '育儿' },
-    { key: '5.梦想专精', ico: 'dream', label: '梦想' },
-    { key: '6.身心与生活', ico: 'life', label: '身心' }
-  ].filter(c => actions.some(a => a.cat === c.key));
-
-  if (!allCats.some(c => c.key === activeCat) && allCats.length) activeCat = allCats[0].key;
-  const visible = actions.filter(a => a.cat === activeCat);
   const prev = previewDraft(state, draft);
+  const goal = getGoalMeta(state);
+  const recMap = getRecommendedActionMap(state, actions);
+  const isFirstTurn = (state.totalTurns || 0) === 0;
+  const isFull = draft.length >= budget.available;
+
+  // 统计每张贴纸已排入次数（专属右上角 ×N 计数）
+  const slotCounts = {};
+  for (const id of draft) slotCounts[id] = (slotCounts[id] || 0) + 1;
+
+  // 解析当前预览条展示的行动卡
+  const recFirstId = Object.keys(recMap)[0] || actions[0]?.id || null;
+  let inspected = actions.find(a => a.id === inspectedId) || null;
+  if (!inspected && !isFirstTurn) {
+    inspected = actions.find(a => a.id === (draft[draft.length - 1] || recFirstId)) || actions[0] || null;
+  }
+
+  // 构建顶部单行预览条 / 新手 3 步无遮罩引导条
+  let inspectorHtml = '';
+  if (isFirstTurn && draft.length === 0 && !inspected) {
+    inspectorHtml = `
+      <div class="v5-inspector guide-mode">
+        <div class="insp-well" style="--well-bg:var(--accent-soft);">${pxIcon('spark', 22)}</div>
+        <div class="insp-body">
+          <div class="insp-top">
+            <span class="insp-step">1/3</span>
+            <span class="insp-name">轻点下方贴纸，直接排进时间槽</span>
+          </div>
+          <div class="insp-sub">排入后在此看收益与代价 · 或点右上「帮我安排」</div>
+        </div>
+      </div>
+    `;
+  } else if (inspected) {
+    const meta = getActionMeta(inspected, state);
+    const inSlotCnt = slotCounts[inspected.id] || 0;
+    let rightEl = '';
+    let topTag = '';
+    if (inspected.disabled) {
+      topTag = `<span class="insp-tip">本年次数已满</span>`;
+    } else if (isFull && !inSlotCnt) {
+      topTag = `<span class="insp-tip">槽位已满</span>`;
+      rightEl = `<button class="insp-replace" id="insp-replace">替换末位</button>`;
+    } else if (isFull && isFirstTurn) {
+      topTag = `<span class="insp-tip done">✓ 已排满</span>`;
+    } else if (isFirstTurn && inSlotCnt > 0) {
+      topTag = `<span class="insp-step">2/3</span><span class="insp-tip">已入槽 · 点上方 ✕ 可撤</span>`;
+    } else if (recMap[inspected.id]) {
+      topTag = `<span class="fx-chip gold">${recMap[inspected.id]}推荐</span>`;
+    } else if (inSlotCnt > 0) {
+      topTag = `<span class="insp-tip done">已排 ×${inSlotCnt}</span>`;
+    }
+
+    inspectorHtml = `
+      <div class="v5-inspector ${isFirstTurn ? 'guide-mode' : ''}">
+        <div class="insp-well" style="--well-bg:${meta.wellBg};">${pxIcon(meta.ico, 22)}</div>
+        <div class="insp-body">
+          <div class="insp-top">
+            <span class="insp-name">${inspected.name}</span>
+            ${inspected.costCash > 0 ? `<span class="insp-cost">¥${fmtMoney(inspected.costCash)}</span>` : ''}
+            ${topTag}
+          </div>
+          <div class="chip-row">
+            ${(inspected.chips || []).map(c => `<span class="fx-chip ${c.k}">${c.t}</span>`).join('')}
+          </div>
+        </div>
+        ${rightEl}
+      </div>
+    `;
+  }
+
+  // 主工具按钮：首季/无历史显示「帮我安排」，有历史显示「沿用上次」（帮排也在 ··· 里随时可用）
+  const useReuseAsPrimary = !isFirstTurn && state.lastDraft.length > 0;
+  const primaryToolHtml = useReuseAsPrimary
+    ? `<button class="smart-btn" id="v5-reuse">↺ 沿用上次</button>`
+    : `<button class="smart-btn" id="v5-smart">${pxIcon('spark', 13)} 帮我安排</button>`;
+
+  const remain = Math.max(0, budget.available - draft.length);
+  const goPillHtml = isFirstTurn && isFull
+    ? `<span class="go-pill">3/3 点这里出发</span>`
+    : remain > 0
+      ? `<span class="go-pill">差 ${remain} 格</span>`
+      : `<span class="go-pill">已排满</span>`;
 
   return `
     <div class="v5-drawer ${drawerOpen ? 'open' : ''}">
-      <svg class="torn-edge-svg" viewBox="0 0 390 13" preserveAspectRatio="none">
-        <path d="M0,13 L0,7 Q16,2 32,7 T64,6 T96,8 T128,5 T160,8 T192,5 T224,8 T256,5 T288,7 T320,5 T352,8 T390,6 L390,13 Z" fill="#faf6ee"/>
-      </svg>
-      <div class="v5-tape-corner l"></div>
-      <div class="v5-tape-corner r"></div>
+      <div class="v5-grab"></div>
       <div class="v5-head">
-        <b style="font-size:14px;">时间槽 (${draft.length}/${budget.available})</b>
-        <div style="display:flex;gap:4px;">
-          <button class="btn ghost" id="v5-reuse" ${state.lastDraft.length ? '' : 'disabled'}>沿用上次</button>
-          <button class="btn ghost" id="v5-tpl">${state.templates.balance.length ? '载入模板' : '存模板'}</button>
-          <button class="btn ghost" id="v5-clear">清空</button>
+        <span class="v5-title">本季安排<b>${draft.length}/${budget.available}</b></span>
+        <div class="v5-tools">
+          ${primaryToolHtml}
+          <button class="ico-btn" id="v5-more-toggle" aria-label="更多操作">···</button>
+          <button class="ico-btn close-btn" id="v5-close" title="收起回主页（保留草稿）" aria-label="收起抽屉">${chevDownIcon(15)}</button>
         </div>
+        ${moreMenuOpen ? `
+          <div class="v5-more-menu" id="v5-more-menu">
+            <button class="v5-more-item" id="v5-smart-menu">${pxIcon('spark', 13)} 智能帮我安排</button>
+            <button class="v5-more-item" id="v5-reuse-menu" ${state.lastDraft.length ? '' : 'disabled'}>↺ 沿用上次排程</button>
+            <button class="v5-more-item" id="v5-tpl">${state.templates.balance.length ? '📋 载入我的模板' : '📌 存为我的模板'}</button>
+            <button class="v5-more-item danger" id="v5-clear" ${draft.length ? '' : 'disabled'}>✕ 清空当前槽位</button>
+          </div>
+        ` : ''}
       </div>
-      <div class="goal-note">${pxIcon('pin', 14)} <span>${getGoalHint(state)}</span></div>
-      <div class="v5-slots">
+
+      <div class="v5-slots ${budget.available >= 5 ? 'five' : ''}" style="grid-template-columns: repeat(${Math.min(5, budget.available)}, 1fr);">
         ${draft.map((id, i) => {
           const a = actions.find(x => x.id === id);
-          return `<span class="stamp-slot filled" data-rm="${i}">${a ? a.name.slice(0, 6) : id} ×</span>`;
+          const m = a ? getActionMeta(a, state) : { short: id, slotBg: 'var(--accent-soft)', slotFg: 'var(--accent)' };
+          return `<button class="stamp-slot filled" style="--slot-bg:${m.slotBg};--slot-fg:${m.slotFg};" data-rm="${i}" title="点击移除">${m.short}<span class="sx">✕</span></button>`;
         }).join('')}
-        ${Array.from({ length: Math.max(0, budget.available - draft.length) }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
+        ${Array.from({ length: remain }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
       </div>
-      <div class="cat-pills" style="grid-template-columns: repeat(${allCats.length}, 1fr);">
-        ${allCats.map(c => `<button class="cat-pill ${activeCat===c.key?'active':''}" data-cat="${c.key}">${pxIcon(c.ico, 17)}<span>${c.label}</span></button>`).join('')}
+
+      <div class="goal-note">
+        ${pxIcon('pin', 13)}
+        <span class="gn-text">${goal.text}</span>
+        ${goal.pct !== null ? `<span class="gn-bar"><i style="width:${goal.pct}%"></i></span><span class="gn-num">${goal.label}</span>` : ''}
       </div>
+
+      ${inspectorHtml}
+
       <div class="v5-cards">
-        ${visible.map(a => `
-          <button class="action-card" data-add="${a.id}" ${a.disabled || draft.length >= budget.available ? 'disabled' : ''}>
-            <div class="ac-top"><span>${a.name}</span><span style="color:${a.costCash>0?'var(--accent)':'var(--green)'}">${a.costCash>0?'-¥'+fmtMoney(a.costCash):'免费'}</span></div>
-            <div class="chip-row">
-              ${(a.chips || []).map(c => `<span class="fx-chip ${c.k}">${c.t}</span>`).join('')}
-            </div>
-          </button>
-        `).join('')}
+        <div class="sticker-grid ${actions.length > 8 ? 'compact' : ''}">
+          ${actions.map(a => {
+            const m = getActionMeta(a, state);
+            const cnt = slotCounts[a.id] || 0;
+            const rec = recMap[a.id];
+            const isFocus = inspected && inspected.id === a.id;
+            const pulseFirst = isFirstTurn && draft.length === 0 && a.id === recFirstId;
+            return `
+              <button class="stk ${isFocus ? 'focus' : ''} ${cnt ? 'slotted' : ''} ${a.disabled ? 'is-disabled' : ''} ${pulseFirst ? 'guide-pulse' : ''}" data-sticker="${a.id}">
+                ${rec ? `<span class="stk-rec">${rec}</span>` : ''}
+                ${a.costCash > 0 ? `<span class="stk-price ${rec ? 'under-rec' : ''}">¥${fmtMoney(a.costCash)}</span>` : ''}
+                ${cnt > 0 ? `<span class="stk-cnt">×${cnt}</span>` : ''}
+                <div class="stk-well" style="--well-bg:${m.wellBg};">${pxIcon(m.ico, 23)}</div>
+                <span class="stk-nm">${m.short}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <div class="v5-hint-line">${isFirstTurn ? '单点贴纸即排入 · 点上方槽位 ✕ 随时撤销 · 点右上角可收起回主页' : '单点即排入 · 排满后点贴纸可对比详情或替换 · 右上角 ∨ 收起回主页'}</div>
       </div>
+
       <div class="v5-footer">
         ${prev.fatigueWarn ? `<div class="v5-warn">⚠️ 本季安排过满（疲劳将达 ${prev.endFatigue}/${state.origin.fatigueLimit}），会额外损耗健康</div>` : ''}
-        <button class="btn-go" id="v5-exec">开始这一季${draft.length ? `（已排 ${draft.length}/${budget.available}）` : ' →'}</button>
+        <button class="btn-go ${isFirstTurn && isFull ? 'ready-pulse' : ''}" id="v5-exec">开始这一季 → ${goPillHtml}</button>
       </div>
     </div>
   `;
@@ -503,12 +729,17 @@ function bindMainEvents(actions, budget, cornerSticker) {
   const bind = (id, fn) => { const el = appEl.querySelector(id); if (el) el.onclick = fn; };
 
   // 主页 V4 / V5 交互
-  bind('#btn-open-drawer', () => { drawerOpen = true; render(); });
-  bind('#drawer-mask', () => { drawerOpen = false; render(); });
+  bind('#btn-open-drawer', () => { drawerOpen = true; moreMenuOpen = false; render(); });
+  bind('#drawer-mask', () => { drawerOpen = false; moreMenuOpen = false; render(); });
+  bind('#v5-close', () => { drawerOpen = false; moreMenuOpen = false; render(); });
   bind('#toast-close', () => { toastMsg = ''; render(); });
   bind('#hud-era', openEraNewspaper);
   bind('#btn-news', openEraNewspaper);
-  bind('#hud-cash', () => { if (state.totalTurns >= 1 || state.age > 6) { activeTab = 'assets'; render(); } });
+  bind('#hud-cash', () => {
+    if (state.totalTurns >= 1 || state.age > 6) {
+      activeTab = 'assets'; drawerOpen = false; moreMenuOpen = false; render();
+    }
+  });
   bind('#hero-tap', () => {
     heroHop = true;
     showToast(state.gender === 'female' ? '「一步一步走，把这一辈子过得热气腾腾。」' : '「先把手头这一季安排好，未来慢慢来。」');
@@ -523,33 +754,83 @@ function bindMainEvents(actions, budget, cornerSticker) {
     });
   }
 
-  // V5 撕纸抽屉内交互
-  appEl.querySelectorAll('[data-cat]').forEach(b => { b.onclick = () => { activeCat = b.dataset.cat; render(); }; });
-  appEl.querySelectorAll('[data-add]').forEach(b => {
-    b.onclick = () => { if (draft.length < budget.available) { draft.push(b.dataset.add); render(); } };
+  // V5 方案 A：爽快型单点贴纸直接入槽 + 上方实时预览
+  appEl.querySelectorAll('[data-sticker]').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.sticker;
+      const act = actions.find(x => x.id === id);
+      moreMenuOpen = false;
+      inspectedId = id;
+      if (!act) return render();
+      if (act.disabled) {
+        showToast(`「${act.name}」本年次数已用完`);
+        return;
+      }
+      if (draft.length < budget.available) {
+        draft.push(id);
+      }
+      render();
+    };
   });
-  appEl.querySelectorAll('[data-rm]').forEach(s => { s.onclick = () => { draft.splice(Number(s.dataset.rm), 1); render(); }; });
-  bind('#v5-clear', () => { draft = []; render(); });
-  bind('#v5-reuse', () => {
+  appEl.querySelectorAll('[data-rm]').forEach(s => {
+    s.onclick = () => {
+      const idx = Number(s.dataset.rm);
+      const removed = draft[idx];
+      draft.splice(idx, 1);
+      moreMenuOpen = false;
+      if (removed) inspectedId = removed;
+      render();
+    };
+  });
+  bind('#insp-replace', () => {
+    if (inspectedId && draft.length >= budget.available) {
+      draft[draft.length - 1] = inspectedId;
+      moreMenuOpen = false;
+      render();
+    }
+  });
+
+  const doSmartFill = () => {
+    draft = buildSmartDraft(state, actions, budget);
+    inspectedId = draft[draft.length - 1] || null;
+    moreMenuOpen = false;
+    showToast('已按当前目标帮你排满，点上方 ✕ 可随时替换');
+  };
+  const doReuse = () => {
     const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
     draft = state.lastDraft.filter(id => valid.has(id)).slice(0, budget.available);
+    inspectedId = draft[draft.length - 1] || null;
+    moreMenuOpen = false;
     render();
-  });
+  };
+
+  bind('#v5-smart', doSmartFill);
+  bind('#v5-smart-menu', doSmartFill);
+  bind('#v5-reuse', doReuse);
+  bind('#v5-reuse-menu', doReuse);
+  bind('#v5-more-toggle', (e) => { e.stopPropagation(); moreMenuOpen = !moreMenuOpen; render(); });
+  bind('#v5-clear', () => { draft = []; moreMenuOpen = false; render(); });
   bind('#v5-tpl', () => {
+    moreMenuOpen = false;
     if (state.templates.balance.length) {
       const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
       draft = state.templates.balance.filter(id => valid.has(id)).slice(0, budget.available);
+      inspectedId = draft[draft.length - 1] || null;
+      showToast('已载入自定义模板');
     } else if (draft.length) {
       state.templates.balance = [...draft];
       showToast('已保存当前方案为自定义模板');
+    } else {
+      showToast('请先排入至少 1 项再存模板');
     }
-    render();
   });
 
-  // 执行本回合（丝滑收起撕纸 -> 主角微跳 -> 2秒飘字浮条）
+  // 执行本回合（丝滑收起抽屉 -> 主角微跳 -> 2秒飘字浮条）
   bind('#v5-exec', () => {
     const res = executeTurn(state, draft);
     draft = [];
+    inspectedId = null;
+    moreMenuOpen = false;
     drawerOpen = false;
     heroHop = true;
     render();
@@ -595,7 +876,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
       if (state.branches[a]) {
         const saved = JSON.parse(state.branches[a]);
         saved.branches = state.branches;
-        state = saved; draft = []; activeTab = 'home';
+        state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home';
         showToast(`已从人生树回到 ${a} 岁分叉点！`);
       }
     };
@@ -663,7 +944,7 @@ function renderIntro() {
   appEl.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => { pickedTalent = b.dataset.t; renderIntro(); }; });
   appEl.querySelector('#btn-start').onclick = () => {
     state = createInitialState(pickedOrigin.id, pickedTalent, pickedGender);
-    activeTab = 'home'; drawerOpen = false; draft = [];
+    activeTab = 'home'; drawerOpen = false; draft = []; inspectedId = null; moreMenuOpen = false;
     render();
     showToast('6 岁开学啦！点下方「安排新学期」开始你的第一季');
   };
