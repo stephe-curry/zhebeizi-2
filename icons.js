@@ -84,12 +84,44 @@ const SVG_MAP = {
   blade: `<rect x="11" y="2" width="3" height="3" fill="#fff8eb"/><rect x="9" y="4" width="3" height="3" fill="#dbeafe"/><rect x="7" y="6" width="3" height="3" fill="#93c5fd"/><rect x="5" y="8" width="3" height="3" fill="#60a5fa"/><rect x="3" y="10" width="3" height="2" fill="#4a3728"/><rect x="2" y="12" width="3" height="2" fill="#c9683a"/>`,
   frog: `<rect x="4" y="4" width="2" height="2" fill="#5ca877"/><rect x="10" y="4" width="2" height="2" fill="#5ca877"/><rect x="3" y="6" width="10" height="6" fill="#3b8760"/><rect x="5" y="9" width="6" height="3" fill="#dcfce7"/><rect x="5" y="5" width="1" height="1" fill="#4a3728"/><rect x="10" y="5" width="1" height="1" fill="#4a3728"/><rect x="2" y="8" width="1" height="2" fill="#f2c14e"/><rect x="4" y="12" width="3" height="2" fill="#4a3728"/><rect x="9" y="12" width="3" height="2" fill="#4a3728"/>`,
   watch: `<rect x="6" y="2" width="4" height="2" fill="#d99a26"/><rect x="4" y="4" width="8" height="9" fill="#4a3728"/><rect x="5" y="5" width="6" height="7" fill="#f7d56b"/><rect x="6" y="6" width="4" height="5" fill="#fff8eb"/><rect x="7" y="6" width="1" height="3" fill="#4a3728"/><rect x="8" y="8" width="2" height="1" fill="#c9683a"/>`,
-  sofa: `<rect x="3" y="5" width="10" height="4" fill="#d97b54"/><rect x="2" y="7" width="2" height="5" fill="#b85d3b"/><rect x="12" y="7" width="2" height="5" fill="#b85d3b"/><rect x="4" y="9" width="8" height="3" fill="#f2a679"/><rect x="3" y="12" width="10" height="1" fill="#4a3728"/>`
+  sofa: `<rect x="3" y="5" width="10" height="4" fill="#d97b54"/><rect x="2" y="7" width="2" height="5" fill="#b85d3b"/><rect x="12" y="7" width="2" height="5" fill="#b85d3b"/><rect x="4" y="9" width="8" height="3" fill="#f2a679"/><rect x="3" y="12" width="10" height="1" fill="#4a3728"/>`,
+  smile: `<rect x="5" y="2" width="6" height="1" fill="#4a3728"/><rect x="3" y="3" width="2" height="1" fill="#4a3728"/><rect x="11" y="3" width="2" height="1" fill="#4a3728"/><rect x="2" y="4" width="1" height="8" fill="#4a3728"/><rect x="13" y="4" width="1" height="8" fill="#4a3728"/><rect x="3" y="12" width="2" height="1" fill="#4a3728"/><rect x="11" y="12" width="2" height="1" fill="#4a3728"/><rect x="5" y="13" width="6" height="1" fill="#4a3728"/><rect x="4" y="4" width="8" height="8" fill="#f6cf78"/><rect x="5" y="3" width="6" height="1" fill="#f6cf78"/><rect x="5" y="12" width="6" height="1" fill="#f6cf78"/><rect x="3" y="5" width="1" height="6" fill="#f6cf78"/><rect x="12" y="5" width="1" height="6" fill="#f6cf78"/><rect x="5" y="6" width="2" height="2" fill="#4a3728"/><rect x="9" y="6" width="2" height="2" fill="#4a3728"/><rect x="5" y="10" width="6" height="1" fill="#4a3728"/><rect x="4" y="9" width="1" height="1" fill="#4a3728"/><rect x="11" y="9" width="1" height="1" fill="#4a3728"/><rect x="4" y="8" width="1" height="1" fill="#e88a78"/><rect x="11" y="8" width="1" height="1" fill="#e88a78"/>`
 };
 
 export function pxIcon(name, size = 18) {
   const body = SVG_MAP[name] || SVG_MAP.dream;
   return `<svg class="px-ico" width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+}
+
+// V5 撕纸手账内嵌底栏专用：极简细棕线手绘矢量图标（还原图二钢笔线稿质感）
+export function lineNavIcon(name, size = 22) {
+  const map = {
+    home: `
+      <rect x="4.5" y="2.8" width="14.5" height="18.4" rx="2.4" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.65"/>
+      <path d="M2.8 6.2H5.8M2.8 10H5.8M2.8 13.8H5.8M2.8 17.6H5.8" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/>
+      <rect x="8.5" y="6.8" width="6.8" height="3.8" rx="0.9" stroke="currentColor" stroke-width="1.45"/>
+      <path d="M8.5 14.2H15.2M8.5 17H13" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/>
+    `,
+    assets: `
+      <path d="M8.8 5.2V4.1C8.8 3.1 9.6 2.4 10.6 2.4H13.4C14.4 2.4 15.2 3.1 15.2 4.1V5.2" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/>
+      <rect x="4.2" y="5.2" width="15.6" height="15.6" rx="4.2" fill="currentColor" fill-opacity="0.1" stroke="currentColor" stroke-width="1.65"/>
+      <path d="M4.6 11.2C7.5 12.8 16.5 12.8 19.4 11.2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+      <path d="M9.3 10.6V14.2M14.7 10.6V14.2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+      <rect x="8" y="15.4" width="8" height="3.2" rx="1.2" stroke="currentColor" stroke-width="1.35"/>
+    `,
+    social: `
+      <circle cx="9" cy="8.2" r="3.1" fill="currentColor" fill-opacity="0.1" stroke="currentColor" stroke-width="1.65"/>
+      <path d="M3.6 19.2C3.9 15.6 6.1 13.6 9 13.6C11.9 13.6 14.1 15.6 14.4 19.2" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/>
+      <circle cx="16.2" cy="9.4" r="2.5" stroke="currentColor" stroke-width="1.55"/>
+      <path d="M14.2 19.2C14.6 16.5 16.2 15 18.4 15C19.6 15 20.6 15.5 21.2 16.5" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+    `,
+    album: `
+      <rect x="2.6" y="4.8" width="18.8" height="14.4" rx="2.2" fill="currentColor" fill-opacity="0.1" stroke="currentColor" stroke-width="1.65"/>
+      <path d="M6.4 4.8V19.2M17.6 4.8V19.2M2.6 8.4H6.4M2.6 12H6.4M2.6 15.6H6.4M17.6 8.4H21.4M17.6 12H21.4M17.6 15.6H21.4" stroke="currentColor" stroke-width="1.35"/>
+      <path d="M10.4 9.7L14.4 12L10.4 14.3V9.7Z" stroke="currentColor" stroke-width="1.45" stroke-linejoin="round"/>
+    `
+  };
+  return `<svg class="px-ico line-nav-ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${map[name] || map.home}</svg>`;
 }
 
 export function chevDownIcon(size = 14) {

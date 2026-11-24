@@ -5,16 +5,16 @@
 // 4. 「亲友梦」自然生长四阶追梦手账卡
 // 严格遵循纯中文零表情符号规范。
 
-import { CITIES } from './data.js?v=s40';
+import { CITIES } from './data.js?v=s51';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_BOND_ORDER, HEX_CARD_MAP,
   hasHex, getHexInstance, getHexBondCounts, getBondTier,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s40';
-import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s40';
-import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s40';
-import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s40';
-import { pxIcon } from './icons.js?v=s40';
+} from './hextech.js?v=s51';
+import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s51';
+import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s51';
+import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s51';
+import { pxIcon } from './icons.js?v=s51';
 
 // 移动端触感短震动（兼容微信小程序 wx.vibrateShort 与移动端浏览器）
 export function triggerHaptic(type = 'medium') {
@@ -22,7 +22,9 @@ export function triggerHaptic(type = 'medium') {
     if (typeof globalThis.wx !== 'undefined' && typeof globalThis.wx.vibrateShort === 'function') {
       globalThis.wx.vibrateShort({ type });
     } else if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(type === 'heavy' ? 28 : 14);
+      if (!navigator.userActivation || navigator.userActivation.isActive) {
+        navigator.vibrate(type === 'heavy' ? 28 : 14);
+      }
     }
   } catch (e) {}
 }

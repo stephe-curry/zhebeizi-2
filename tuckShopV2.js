@@ -1,10 +1,10 @@
 // 《这辈子 2.0》Sprint 4 —— 千禧校门口小卖部 V2（三层实景木货架 + 手撕干脆面三步真实交互 + 课间同桌拍水浒卡对决）
 // 严格遵循纯中文零表情符号规范。
 
-import { getBondTier, hasHex } from './hextech.js?v=s40';
-import { TUCK_CARDS_12, TUCK_GOODS, buyTuckGood, buyTuckGift } from './lifeFeatures.js?v=s40';
-import { triggerHaptic } from './vfxAndUi.js?v=s40';
-import { pxIcon } from './icons.js?v=s40';
+import { getBondTier, hasHex } from './hextech.js?v=s51';
+import { TUCK_CARDS_12, TUCK_GOODS, buyTuckGood, buyTuckGift } from './lifeFeatures.js?v=s51';
+import { triggerHaptic } from './vfxAndUi.js?v=s51';
+import { pxIcon } from './icons.js?v=s51';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -88,7 +88,7 @@ export function openTuckShopV2(ctx) {
   ensureTuckV2State(state);
 
   const renderShelf = () => {
-    const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
+    const disc = (getBondTier(state, 'wealth') >= 2 || state.origin?.id === 'merchant') ? 0.9 : 1.0;
     const packPrice = Math.round(15 * disc);
     const ownedCnt = state.snackCards.length;
     const dupCnt = state.dupSnackCards || 0;
@@ -270,7 +270,7 @@ export function openTearNoodleModal(ctx, flavor, onBackToShop) {
 
   const renderStage = () => {
     const owned = state.snackCards;
-    const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
+    const disc = (getBondTier(state, 'wealth') >= 2 || state.origin?.id === 'merchant') ? 0.9 : 1.0;
     const nextPrice = Math.round(15 * disc);
     const unownedLeft = TUCK_CARDS_12.length - owned.length;
 
@@ -476,7 +476,85 @@ function openBinderModal(ctx, onBack) {
   });
 }
 
-// ==================== 4. 《课间同桌拍水浒卡（拍洋画对决）》精品物理小游戏 ====================
+// ==================== 4. 《课间拍水浒卡 2.0》（第一人称立体双手 + 微翘迎风口 + 三掌法 + 小周四阶回合博弈） ====================
+let slapAudioCtx = null;
+function playDeskSlapSfx(power = 1.0, isFlip = false) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!slapAudioCtx) slapAudioCtx = new AC();
+    if (slapAudioCtx.state === 'suspended') slapAudioCtx.resume();
+    const now = slapAudioCtx.currentTime;
+
+    // 木课桌低频共鸣闷响
+    const osc = slapAudioCtx.createOscillator();
+    const g1 = slapAudioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(115 * power, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.13);
+    g1.gain.setValueAtTime(Math.min(0.28, 0.18 * power), now);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    osc.connect(g1);
+    g1.connect(slapAudioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
+
+    // 巴掌清脆拍击白噪脉冲
+    const bufLen = Math.floor(slapAudioCtx.sampleRate * 0.065);
+    const buf = slapAudioCtx.createBuffer(1, bufLen, slapAudioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.28));
+    }
+    const noise = slapAudioCtx.createBufferSource();
+    const g2 = slapAudioCtx.createGain();
+    noise.buffer = buf;
+    g2.gain.setValueAtTime(Math.min(0.26, 0.16 * power), now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    noise.connect(g2);
+    g2.connect(slapAudioCtx.destination);
+    noise.start(now);
+
+    if (isFlip) {
+      const winOsc = slapAudioCtx.createOscillator();
+      const gw = slapAudioCtx.createGain();
+      winOsc.type = 'sine';
+      winOsc.frequency.setValueAtTime(523, now + 0.08);
+      winOsc.frequency.setValueAtTime(784, now + 0.18);
+      gw.gain.setValueAtTime(0.14, now + 0.08);
+      gw.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
+      winOsc.connect(gw);
+      gw.connect(slapAudioCtx.destination);
+      winOsc.start(now + 0.08);
+      winOsc.stop(now + 0.35);
+    }
+  } catch (_) {}
+}
+
+function renderHandTechSvg(kind) {
+  if (kind === 'cup') {
+    return `<svg width="38" height="28" viewBox="0 0 44 32" aria-hidden="true">
+      <path d="M9,22 Q16,10 31,12 L37,15 L36,24 L14,25 Z" fill="#f6cfa6" stroke="#4a3728" stroke-width="1.8"/>
+      <path d="M12,17 Q20,14 28,16" fill="none" stroke="#8a5a3c" stroke-width="1.4"/>
+      <rect x="33" y="13" width="8" height="12" rx="2" fill="#c9594a" stroke="#4a3728" stroke-width="1.6"/>
+      <line x1="36" y1="13" x2="36" y2="25" stroke="#fff8eb" stroke-width="1.6"/>
+    </svg>`;
+  }
+  if (kind === 'chop') {
+    return `<svg width="38" height="28" viewBox="0 0 44 32" aria-hidden="true">
+      <path d="M10,25 L28,7 L34,12 L18,28 Z" fill="#f6cfa6" stroke="#4a3728" stroke-width="1.8"/>
+      <path d="M8,16 Q18,6 28,5" fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="3 2"/>
+      <rect x="9" y="21" width="9" height="8" rx="2" transform="rotate(-38 13 25)" fill="#c9594a" stroke="#4a3728" stroke-width="1.5"/>
+    </svg>`;
+  }
+  return `<svg width="38" height="28" viewBox="0 0 44 32" aria-hidden="true">
+    <path d="M21,5 L14,23 L21,25 Z" fill="#f6cfa6" stroke="#4a3728" stroke-width="1.7"/>
+    <path d="M23,5 L30,23 L23,25 Z" fill="#f2c091" stroke="#4a3728" stroke-width="1.7"/>
+    <rect x="11" y="22" width="9" height="6" rx="1.5" fill="#c9594a" stroke="#4a3728" stroke-width="1.4"/>
+    <rect x="24" y="22" width="9" height="6" rx="1.5" fill="#c9594a" stroke="#4a3728" stroke-width="1.4"/>
+  </svg>`;
+}
+
 export function openCardSlapModal(ctx, onBack) {
   const { state, mountOverlay, saveAutoProgress, showToast } = ctx;
   ensureTuckV2State(state);
@@ -486,284 +564,945 @@ export function openCardSlapModal(ctx, onBack) {
   if (state.dupSnackCards > 0) state.dupSnackCards--;
   saveAutoProgress();
 
-  mountOverlay(`<div class="sheet-modal"><div class="sheet-box" id="slap-host"></div></div>`, host => {
-    runCardSlapCanvas(host.querySelector('#slap-host'), state, stakeTarget, res => {
-      if (res.won) {
-        if (!state.snackCards.includes(stakeTarget)) {
-          state.snackCards.push(stakeTarget);
+  const mountDuel = () => {
+    mountOverlay(`<div class="sheet-modal"><div class="sheet-box slap2-sheet" id="slap-host"></div></div>`, host => {
+      runCardSlapCanvas(host.querySelector('#slap-host'), state, stakeTarget, res => {
+        if (res.rematch) {
+          mountDuel();
+          return;
         }
-        // 赢回自己的底注卡的同时拿走小周的缺卡！
-        const mTxt = checkWaterMarginMilestone(state);
-        if (!state.arcadeFirstS.includes('card_slap') && res.grade === 'S') {
-          state.arcadeFirstS.push('card_slap');
-          state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
+        if (res.won) {
+          if (!state.snackCards.includes(stakeTarget)) {
+            state.snackCards.push(stakeTarget);
+          }
+          const mTxt = checkWaterMarginMilestone(state);
+          if (!state.arcadeFirstS.includes('card_slap') && res.grade === 'S') {
+            state.arcadeFirstS.push('card_slap');
+            state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
+          }
+          state.stats.mood = clamp(state.stats.mood + 5);
+          state.relations.friend.intimacy = clamp(state.relations.friend.intimacy + 2);
+          saveAutoProgress();
+          showToast(`漂亮掀翻 180 度！赢下小周的缺卡【${stakeTarget}】收入卡册！${mTxt ? ' · ' + mTxt : ''}`);
+        } else {
+          state.relations.friend.intimacy = clamp(state.relations.friend.intimacy + 3);
+          state.stats.mood = clamp(state.stats.mood + 2);
+          saveAutoProgress();
+          showToast('被小周趁翘角截胡啦！不过课间玩得痛快，同桌交情 +3');
         }
-        state.stats.mood = clamp(state.stats.mood + 4);
-        state.relations.friend.intimacy = clamp(state.relations.friend.intimacy + 2);
-        saveAutoProgress();
-        showToast(`拍翻成功！赢走小周的缺卡【${stakeTarget}】收入卡册！${mTxt ? ' · ' + mTxt : ''}`);
-      } else {
-        state.relations.friend.intimacy = clamp(state.relations.friend.intimacy + 3);
-        state.stats.mood = clamp(state.stats.mood + 2);
-        saveAutoProgress();
-        showToast('差一点点没拍翻！小周笑嘻嘻收走重卡，同桌交情 +3');
-      }
-      onBack();
+        if (onBack) onBack();
+      });
     });
-  });
+  };
+  mountDuel();
 }
 
+const STAGE_NAMES = ['平贴桌面', '震松微翘', '悬边半立', '彻底翻面'];
+
 export function runCardSlapCanvas(container, state, targetCardStr, onFinish) {
-  const W = 342, H = 228;
-  let stance = 'cup'; // 'cup' 窝风弓手掌（稳） | 'chop' 斜切震桌掌（猛）
-  let turnsLeft = 3; // 三拍机会内把目标缺卡拍翻即胜！
-  let meter = 0.2;
-  let meterDir = 1;
-  let handSway = 0;
-  let animState = 'aim'; // 'aim' | 'slam' | 'flip' | 'done'
-  let slamT = 0;
-  let flipAngle = 0;
-  let willFlipWin = false;
+  const W = 346, H = 294;
+  const deskCx = W / 2, deskCy = 166;
+
+  // 0: 平贴桌面, 1: 震松微翘, 2: 悬边半立, 3: 180度彻底翻面通吃
+  let cardStage = 1; // 开局带天然微翘迎风口，第一眼就有策略目标！
+  let windSide = Math.random() < 0.65 ? 'right' : 'left'; // 微翘迎风口朝向
+  let stance = 'cup'; // 'cup' 弓掌窝风 | 'chop' 斜切扇风 | 'quake' 合十震山
+  let spirit = 60; // 满 100 可发动「合十震山」双手绝招
+  let quakeCooldown = 0;
+  let roundNum = 1;
+  const maxRounds = 4;
+
+  // 玩家右手掌心在桌面上的瞄准坐标（支持单指自由拖动找黄金吃风带！）
+  let aimX = windSide === 'right' ? deskCx + 52 : deskCx - 52;
+  let aimY = deskCy + 16;
+  let dragging = false;
+
+  // 按住蓄气缩圈状态
+  let charging = false;
+  let chargeRing = 1.0; // 1.0 -> 0.25 循环收缩，落在 0.36..0.66 金环区发力最猛
+  let chargeDir = -1;
+
+  // 动画状态机：'player_aim' | 'player_slam' | 'card_react' | 'rival_turn' | 'result'
+  let phase = 'player_aim';
+  let phaseT = 0;
+  let shakeT = 0;
+  let shakeAmp = 0;
+  let rivalBubble = '“这把卡翘角了，看你能不能找准风口拍翻！”';
+  let rivalMood = 'smug'; // 'smug' | 'nervous' | 'shock' | 'laugh'
+  let rivalSlapT = 0;
+  let pendingStage = cardStage;
+  let flipAnimDeg = 0;
+  let wonGame = false;
   let dust = [];
-  let statusTxt = `赌注上桌：小周押出缺卡【${targetCardStr.slice(3)}】！选好掌法抓金区拍下！`;
+  let windPuffs = [];
+  let floatTips = [];
   let alive = true;
   let rafId = 0;
 
+  // 计算当前迎风口外 1–2cm 的「黄金吃风带」理想靶心坐标
+  const getSweetSpot = () => ({
+    x: windSide === 'right' ? deskCx + 48 : deskCx - 48,
+    y: deskCy + 12
+  });
+
   container.innerHTML = `
-    <div class="mg-box arc-box">
-      <div class="mg-head">
-        <h3 style="display:flex;align-items:center;gap:6px;">${pxIcon('card', 16)} 课间拍水浒卡 · 对决小周</h3>
-        <button class="btn ghost" id="slap-auto">保底和局</button>
+    <div class="slap2-box">
+      <div class="slap2-header">
+        <div class="slap2-title-row">
+          <h3>课间拍水浒卡 · 对决小周</h3>
+          <button class="btn ghost slap2-skip" id="slap-auto">保底和局</button>
+        </div>
+        <div class="slap2-sub-bar">
+          <span>押注：重卡 vs 缺卡<b>【${targetCardStr.slice(3)}】</b></span>
+          <span>卡态：<b id="slap-stage-txt">${STAGE_NAMES[cardStage]}</b></span>
+        </div>
       </div>
-      <div class="arc-hud">
-        <span>目标缺卡：<b>${targetCardStr.slice(3)}</b></span>
-        <span>剩余拍数：<b id="slap-turns">3</b>/3</span>
+
+      <div class="slap2-canvas-frame">
+        <canvas id="slap2-cv"></canvas>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <button class="pill-btn primary" id="st-cup">窝风弓手掌（甜区宽·稳）</button>
-        <button class="pill-btn soft" id="st-chop">斜切震桌掌（窄区·秒翻）</button>
+
+      <div class="slap2-action-hint" id="slap-hint-bar">
+        拖动手掌贴准金色【黄金吃风带】 · 按住蓄气缩圈至金环松手猛拍！
       </div>
-      <div class="arc-canvas-wrap">
-        <canvas id="slap-cv"></canvas>
+
+      <div class="slap2-tech-grid">
+        <button class="slap2-tech active" data-st="cup">
+          <div class="st-art">${renderHandTechSvg('cup')}</div>
+          <b>【弓掌窝风】</b>
+          <small>吃风稳·甜区宽</small>
+        </button>
+        <button class="slap2-tech" data-st="chop">
+          <div class="st-art">${renderHandTechSvg('chop')}</div>
+          <b>【斜切扇风】</b>
+          <small>风刃猛·破平贴</small>
+        </button>
+        <button class="slap2-tech" data-st="quake" id="st-quake-btn">
+          <div class="st-art">${renderHandTechSvg('quake')}</div>
+          <b>【合十震山】</b>
+          <small id="st-quake-sub">气势 60%</small>
+        </button>
       </div>
-      <button class="btn primary arc-hold-btn" id="slap-hit">看准右侧金色爆风区 · 落掌猛拍课桌！</button>
     </div>
   `;
 
-  const cv = container.querySelector('#slap-cv');
+  const cv = container.querySelector('#slap2-cv');
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = W * dpr; cv.height = H * dpr;
-  cv.style.width = `${W}px`; cv.style.height = `${H}px`;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  cv.style.width = `${W}px`;
+  cv.style.height = `${H}px`;
   const ctx = cv.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const cupBtn = container.querySelector('#st-cup');
-  const chopBtn = container.querySelector('#st-chop');
-  const turnsEl = container.querySelector('#slap-turns');
-  const hitBtn = container.querySelector('#slap-hit');
+  const stageTxtEl = container.querySelector('#slap-stage-txt');
+  const hintBarEl = container.querySelector('#slap-hint-bar');
+  const quakeSubEl = container.querySelector('#st-quake-sub');
+  const techBtns = container.querySelectorAll('.slap2-tech');
 
-  const syncStanceBtns = () => {
-    cupBtn.className = `pill-btn ${stance === 'cup' ? 'primary' : 'soft'}`;
-    chopBtn.className = `pill-btn ${stance === 'chop' ? 'primary' : 'soft'}`;
-  };
-  cupBtn.onclick = () => { stance = 'cup'; syncStanceBtns(); };
-  chopBtn.onclick = () => { stance = 'chop'; syncStanceBtns(); };
+  function syncTechUi() {
+    const canQuake = spirit >= 100 && quakeCooldown <= 0;
+    if (stance === 'quake' && !canQuake) stance = 'cup';
+    techBtns.forEach(b => {
+      const k = b.dataset.st;
+      b.classList.toggle('active', k === stance);
+      if (k === 'quake') {
+        b.classList.toggle('ready', canQuake);
+        quakeSubEl.textContent = quakeCooldown > 0 ? '震麻冷却中' : (canQuake ? '满气可放!' : `气势 ${Math.min(100, spirit)}%`);
+      }
+    });
+  }
+  syncTechUi();
+
+  techBtns.forEach(btn => {
+    btn.onclick = () => {
+      if (phase !== 'player_aim') return;
+      const k = btn.dataset.st;
+      if (k === 'quake' && (spirit < 100 || quakeCooldown > 0)) {
+        floatTips.push({ x: W / 2, y: H - 55, txt: quakeCooldown > 0 ? '双手刚震麻，缓一拍再用！' : '再拍一掌攒满气势即可合十震山！', col: '#fde68a', life: 0.9 });
+        return;
+      }
+      stance = k;
+      triggerHaptic('light');
+      syncTechUi();
+    };
+  });
 
   container.querySelector('#slap-auto').onclick = () => {
     alive = false;
     cancelAnimationFrame(rafId);
-    onFinish({ won: Math.random() < 0.5, grade: 'B' });
+    onFinish({ won: true, grade: 'B' });
   };
 
-  function doSlap() {
-    if (!alive || animState !== 'aim' || turnsLeft <= 0) return;
-    turnsLeft--;
-    turnsEl.textContent = String(turnsLeft);
-    animState = 'slam';
-    slamT = 0;
-
-    // 甜区范围：窝风掌 0.62~0.90（宽28%），斜切掌 0.74~0.90（窄16%）
-    const zMin = stance === 'cup' ? 0.62 : 0.74;
-    const zMax = 0.90;
-    const inSweet = meter >= zMin && meter <= zMax;
-    const nearSweet = meter >= zMin - 0.12 && meter <= zMax + 0.06;
-
-    if (stance === 'chop') {
-      willFlipWin = inSweet ? true : (nearSweet ? Math.random() < 0.35 : false);
-    } else {
-      willFlipWin = inSweet ? Math.random() < 0.85 : (nearSweet ? Math.random() < 0.42 : false);
-    }
-    // 第三拍保底防非酋：只要进过附近甜区给高概率翻面
-    if (turnsLeft === 0 && nearSweet) willFlipWin = true;
-
-    triggerHaptic(inSweet ? 'heavy' : 'medium');
-    for (let i = 0; i < 18; i++) {
-      const a = (Math.PI * 2 * i) / 18;
-      dust.push({ x: W / 2 - 14, y: 128, vx: Math.cos(a) * (45 + Math.random() * 60), vy: Math.sin(a) * 35 - 20, life: 0.7 });
-    }
-    statusTxt = inSweet ? '正中金色爆风区！猛烈掌风掀起卡片！' : (nearSweet ? '掌风擦边掀起一角…' : '哎呀漏风了，拍得手心发麻！');
+  function toCanvasPos(e) {
+    const rect = cv.getBoundingClientRect();
+    const scaleX = W / Math.max(1, rect.width);
+    const scaleY = H / Math.max(1, rect.height);
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
   }
 
-  hitBtn.addEventListener('pointerdown', e => { e.preventDefault(); doSlap(); });
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); doSlap(); });
+  function spawnSlapParticles(x, y, count = 20, power = 1) {
+    for (let i = 0; i < count; i++) {
+      const ang = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+      const spd = (42 + Math.random() * 75) * power;
+      dust.push({
+        x, y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd * 0.65 - 18,
+        r: 2 + Math.random() * 2.8,
+        life: 0.55 + Math.random() * 0.3
+      });
+    }
+    windPuffs.push({ x, y, r: 10, maxR: 58 * power, life: 0.36 });
+  }
+
+  function releasePlayerSlap() {
+    if (!alive || phase !== 'player_aim') return;
+    charging = false;
+    phase = 'player_slam';
+    phaseT = 0;
+
+    const sweet = getSweetSpot();
+    const dist = Math.hypot(aimX - sweet.x, aimY - sweet.y);
+    // 判定是否压死卡背正中
+    const onCardCenter = Math.hypot(aimX - deskCx, aimY - deskCy) < 23;
+    // 缩圈发力时机（0.34 ~ 0.68 为黄金发力环）
+    const goodTiming = chargeRing >= 0.34 && chargeRing <= 0.68;
+    const timingScore = goodTiming ? 1.0 : 0.65;
+
+    let stageDelta = 0;
+    let feedback = '';
+    let fbCol = '#fde047';
+
+    if (stance === 'quake') {
+      spirit = 0;
+      quakeCooldown = 1;
+      shakeT = 0.34;
+      shakeAmp = 7.5;
+      stageDelta = (dist < 42 && !onCardCenter) ? 3 : 2;
+      feedback = stageDelta >= 3 ? '合十震山·正中风口秒翻！！' : '双手震山·桌面狂颤掀立！！';
+      playDeskSlapSfx(1.55, cardStage + stageDelta >= 3);
+      triggerHaptic('heavy');
+      spawnSlapParticles(deskCx, deskCy + 10, 28, 1.45);
+    } else if (onCardCenter) {
+      // 真实童年规则：直接砸在卡背正中，声音响但把卡死死压扁！
+      stageDelta = cardStage > 0 ? -1 : 0;
+      shakeT = 0.16;
+      shakeAmp = 3.5;
+      feedback = '砸中卡背正中！把卡压扁漏风啦！';
+      fbCol = '#fca5a5';
+      playDeskSlapSfx(0.95, false);
+      triggerHaptic('medium');
+      spawnSlapParticles(aimX, aimY, 12, 0.8);
+    } else {
+      const sweetRadius = stance === 'cup' ? 34 : 25;
+      const inSweet = dist <= sweetRadius;
+      const nearSweet = dist <= sweetRadius + 22;
+      shakeT = 0.22;
+      shakeAmp = stance === 'chop' ? 5.2 : 4.0;
+
+      if (inSweet && goodTiming) {
+        stageDelta = (stance === 'chop' || cardStage >= 1) ? 2 : 2;
+        feedback = stance === 'chop' ? '斜切黄金风口·狂风灌底 +2阶！' : '窝风掌正中气缝·猛掀 +2阶！';
+      } else if (inSweet || (nearSweet && goodTiming)) {
+        stageDelta = 1;
+        feedback = '掌风灌入翘角·震起卡片 +1阶！';
+        fbCol = '#86efac';
+      } else if (nearSweet) {
+        stageDelta = cardStage === 0 ? 1 : (Math.random() < 0.65 ? 1 : 0);
+        feedback = stageDelta > 0 ? '掌风擦边微翘一角！' : '离风口偏了一点点，掌风散了';
+        fbCol = '#fde68a';
+      } else {
+        stageDelta = 0;
+        feedback = '拍得太远漏风啦！拖动掌影靠近金月亮！';
+        fbCol = '#fca5a5';
+      }
+      spirit = Math.min(100, spirit + 45);
+      playDeskSlapSfx(inSweet ? 1.25 : 0.9, cardStage + stageDelta >= 3);
+      triggerHaptic(inSweet ? 'heavy' : 'light');
+      spawnSlapParticles(aimX, aimY, inSweet ? 22 : 12, inSweet ? 1.15 : 0.8);
+    }
+
+    if (quakeCooldown > 0 && stance !== 'quake') quakeCooldown = Math.max(0, quakeCooldown - 1);
+    pendingStage = Math.max(0, Math.min(3, cardStage + stageDelta));
+    floatTips.push({ x: deskCx, y: deskCy - 36, txt: feedback, col: fbCol, life: 1.05 });
+    syncTechUi();
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (phase !== 'player_aim') return;
+    const p = toCanvasPos(e);
+    // 允许直接点按/拖动调整落点并同步进入抬手蓄气
+    if (p.y >= 88) {
+      aimX = Math.max(54, Math.min(W - 54, p.x));
+      aimY = Math.max(114, Math.min(H - 42, p.y));
+    }
+    dragging = true;
+    charging = true;
+    chargeRing = 0.95;
+    chargeDir = -1;
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (!dragging || phase !== 'player_aim') return;
+    const p = toCanvasPos(e);
+    aimX = Math.max(54, Math.min(W - 54, p.x));
+    aimY = Math.max(114, Math.min(H - 42, p.y));
+  });
+
+  const endPointer = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (phase === 'player_aim' && charging) {
+      releasePlayerSlap();
+    }
+  };
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', endPointer);
+
+  // 点击提示条也可快捷自动对准并发掌（单手懒人友善）
+  hintBarEl.onclick = () => {
+    if (phase !== 'player_aim') return;
+    const sw = getSweetSpot();
+    aimX = sw.x + (Math.random() - 0.5) * 14;
+    aimY = sw.y + (Math.random() - 0.5) * 10;
+    chargeRing = 0.50;
+    releasePlayerSlap();
+  };
+
+  function runXiaoZhouTurn() {
+    phase = 'rival_turn';
+    phaseT = 0;
+    rivalSlapT = 0;
+    if (cardStage === 2) {
+      rivalMood = 'smug';
+      rivalBubble = '“哈哈半立起来了！看我这巴掌能不能捡漏！”';
+    } else {
+      rivalMood = 'smug';
+      rivalBubble = '“轮到我拍！看我的旋风巴掌！”';
+    }
+  }
+
+  function resolveXiaoZhouImpact() {
+    const rx = deskCx + (windSide === 'right' ? -38 : 38);
+    const ry = deskCy - 8;
+    shakeT = 0.18;
+    shakeAmp = 3.8;
+    playDeskSlapSfx(0.95, false);
+    spawnSlapParticles(rx, ry, 15, 0.95);
+
+    // 只有到了第 4 回合玩家仍未拍翻且卡处于半立时，小周才有机会截胡；前几回合小周会帮震松或拍偏制造刺激感！
+    if (cardStage === 2 && roundNum >= maxRounds) {
+      cardStage = 3;
+      wonGame = false;
+      flipAnimDeg = 180;
+      rivalMood = 'laugh';
+      rivalBubble = '“耶！！被我捡漏拍翻咯！”';
+      stageTxtEl.textContent = '被小周截胡';
+      showResultBanner(false);
+      return;
+    }
+
+    if (cardStage === 0) {
+      cardStage = 1;
+      windSide = Math.random() < 0.5 ? 'right' : 'left';
+      rivalMood = 'nervous';
+      rivalBubble = '“哎呀只把卡震翘了一角，便宜你了！”';
+      floatTips.push({ x: deskCx, y: deskCy - 34, txt: '小周把死卡震翘角了！快抓迎风口！', col: '#86efac', life: 1.1 });
+    } else if (cardStage === 2) {
+      // 小周发力过猛擦边没翻过去，换了翘角侧！
+      windSide = windSide === 'right' ? 'left' : 'right';
+      rivalMood = 'nervous';
+      rivalBubble = '“嘶——手拍麻了居然没翻过去！你别抢啊！”';
+      floatTips.push({ x: deskCx, y: deskCy - 34, txt: '小周差口气没拍翻！绝杀机会！', col: '#fde047', life: 1.1 });
+    } else {
+      rivalMood = 'nervous';
+      rivalBubble = '“啧，拍偏漏风了，该你了！”';
+    }
+
+    roundNum++;
+    stageTxtEl.textContent = STAGE_NAMES[cardStage];
+    const sw = getSweetSpot();
+    aimX = sw.x + (windSide === 'right' ? 12 : -12);
+    aimY = sw.y + 10;
+  }
+
+  function showResultBanner(playerWon) {
+    phase = 'result';
+    if (playerWon) {
+      hintBarEl.innerHTML = `<b style="color:#15803d;">成功拍翻【${targetCardStr.slice(3)}】！正在收入集卡册…</b>`;
+      setTimeout(() => {
+        if (!alive) return;
+        alive = false;
+        onFinish({ won: true, grade: roundNum <= 2 ? 'S' : 'A' });
+      }, 1150);
+    } else {
+      hintBarEl.innerHTML = `
+        <span>惜败被小周截胡！</span>
+        <button class="pill-btn primary" id="slap-rematch" style="height:26px;padding:0 10px;font-size:11px;margin-left:6px;">不服再战一局</button>
+        <button class="pill-btn soft" id="slap-accept" style="height:26px;padding:0 10px;font-size:11px;margin-left:4px;">认输涨交情</button>
+      `;
+      const rm = hintBarEl.querySelector('#slap-rematch');
+      const ac = hintBarEl.querySelector('#slap-accept');
+      if (rm) rm.onclick = (ev) => { ev.stopPropagation(); alive = false; cancelAnimationFrame(rafId); onFinish({ rematch: true }); };
+      if (ac) ac.onclick = (ev) => { ev.stopPropagation(); alive = false; cancelAnimationFrame(rafId); onFinish({ won: false, grade: 'B' }); };
+    }
+  }
+
+  // 绘制带条纹校服袖口的立体儿童手掌
+  function drawKidHand(x, y, opts = {}) {
+    const {
+      isLeft = false,
+      mode = 'cup', // 'rest' | 'cup' | 'chop' | 'quake_pair'
+      lift = 0,
+      slamSquash = 0,
+      tingle = false
+    } = opts;
+
+    ctx.save();
+    ctx.translate(x, y - lift * 22);
+    if (slamSquash > 0) ctx.scale(1 + slamSquash * 0.14, 1 - slamSquash * 0.12);
+
+    const skin = tingle ? '#f7b499' : '#f7cfa8';
+    const skinDark = '#e3b083';
+    const outline = '#4a3222';
+
+    if (mode === 'quake_pair') {
+      // 双手合十高举震山大招手型！
+      for (const dir of [-1, 1]) {
+        ctx.save();
+        ctx.scale(dir, 1);
+        ctx.fillStyle = skin;
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(-4, -36);
+        ctx.quadraticCurveTo(-22, -16, -24, 14);
+        ctx.lineTo(-8, 26);
+        ctx.lineTo(-2, 16);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 红白条纹校服护腕袖口
+        ctx.translate(-20, 26);
+        ctx.rotate(0.32);
+        ctx.fillStyle = '#c84b39';
+        ctx.fillRect(-16, 0, 32, 34);
+        ctx.fillStyle = '#fff8ee';
+        ctx.fillRect(-16, 6, 32, 5);
+        ctx.fillRect(-16, 16, 32, 5);
+        ctx.strokeRect(-16, 0, 32, 34);
+        ctx.restore();
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (isLeft) {
+      // 左手自然扶住课桌左下沿稳住重心
+      ctx.rotate(-0.14);
+      ctx.fillStyle = 'rgba(45,26,12,0.22)';
+      ctx.beginPath(); ctx.ellipse(4, 10, 32, 24, 0, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = skin;
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 2.1;
+      ctx.beginPath();
+      ctx.moveTo(-26, 26);
+      ctx.lineTo(-28, -4);
+      ctx.quadraticCurveTo(-27, -22, -19, -22);
+      ctx.quadraticCurveTo(-14, -22, -13, -6);
+      ctx.lineTo(-12, -26);
+      ctx.quadraticCurveTo(-6, -30, -3, -25);
+      ctx.lineTo(-2, -6);
+      ctx.lineTo(1, -25);
+      ctx.quadraticCurveTo(8, -28, 10, -22);
+      ctx.lineTo(9, -4);
+      ctx.lineTo(13, -18);
+      ctx.quadraticCurveTo(19, -20, 20, -13);
+      ctx.lineTo(18, 6);
+      ctx.lineTo(29, 0);
+      ctx.quadraticCurveTo(35, 3, 31, 11);
+      ctx.lineTo(16, 28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // 左袖口
+      ctx.fillStyle = '#c84b39';
+      ctx.fillRect(-26, 24, 46, 42);
+      ctx.fillStyle = '#fff8ee';
+      ctx.fillRect(-26, 30, 46, 6);
+      ctx.fillRect(-26, 42, 46, 6);
+      ctx.strokeRect(-26, 24, 46, 42);
+      ctx.restore();
+      return;
+    }
+
+    // 右手主拍击大手（区分 窝风弓掌 vs 斜切扇风掌）
+    if (mode === 'chop') ctx.rotate(-0.48);
+    else ctx.rotate(0.10);
+
+    // 桌面真实半透明掌影（随抬手蓄气距离拉开！）
+    ctx.save();
+    ctx.translate(-4 - lift * 6, 8 + lift * 20);
+    ctx.fillStyle = `rgba(42, 24, 10, ${0.28 - lift * 0.1})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, mode === 'chop' ? 20 : 30, mode === 'chop' ? 34 : 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = skin;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 2.2;
+
+    if (mode === 'chop') {
+      // 侧立 45 度刀手斜切掌
+      ctx.beginPath();
+      ctx.moveTo(-14, 30);
+      ctx.quadraticCurveTo(-22, 6, -16, -24);
+      ctx.quadraticCurveTo(-10, -36, -1, -33);
+      ctx.quadraticCurveTo(8, -30, 12, -16);
+      ctx.quadraticCurveTo(18, 4, 15, 30);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // 侧掌虎口弧线
+      ctx.strokeStyle = skinDark;
+      ctx.beginPath();
+      ctx.moveTo(-8, -22); ctx.quadraticCurveTo(-4, 0, -5, 18);
+      ctx.stroke();
+    } else {
+      // 五指微拢呈碗状的「弓掌窝风」大手
+      ctx.beginPath();
+      ctx.moveTo(-22, 28);
+      ctx.lineTo(-33, 8);
+      ctx.quadraticCurveTo(-38, 1, -31, -3);
+      ctx.lineTo(-19, 5);
+      ctx.lineTo(-22, -19);
+      ctx.quadraticCurveTo(-19, -27, -12, -25);
+      ctx.lineTo(-9, -29);
+      ctx.quadraticCurveTo(-2, -33, 3, -28);
+      ctx.lineTo(6, -25);
+      ctx.quadraticCurveTo(13, -26, 16, -19);
+      ctx.lineTo(18, -13);
+      ctx.quadraticCurveTo(24, -14, 25, -6);
+      ctx.lineTo(22, 28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // 窝风弓起的手背骨节阴影弧线
+      ctx.strokeStyle = '#b67d52';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 2, 14, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+    }
+
+    // 蓄气缩圈光环（直接画在右手背上，直观还原参考图！）
+    if (phase === 'player_aim') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(0, 4, 12, 0, Math.PI * 2); ctx.stroke();
+      if (charging) {
+        const rNow = 24 * chargeRing;
+        const inZone = chargeRing >= 0.34 && chargeRing <= 0.68;
+        ctx.strokeStyle = inZone ? '#fde047' : '#fb923c';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 4, rNow, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 右手红白条纹校服袖口
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 2.1;
+    ctx.fillStyle = '#c84b39';
+    ctx.fillRect(-23, 25, 46, 46);
+    ctx.fillStyle = '#fff8ee';
+    ctx.fillRect(-23, 31, 46, 6);
+    ctx.fillRect(-23, 43, 46, 6);
+    ctx.strokeRect(-23, 25, 46, 46);
+
+    ctx.restore();
+  }
 
   let lastTs = performance.now();
   function loop(now) {
     if (!alive) return;
     const dt = Math.min(0.05, (now - lastTs) / 1000);
     lastTs = now;
-    handSway += dt;
 
-    if (animState === 'aim') {
-      const spd = stance === 'chop' ? 1.55 : 1.18;
-      meter += meterDir * dt * spd;
-      if (meter >= 1) { meter = 1; meterDir = -1; }
-      if (meter <= 0.05) { meter = 0.05; meterDir = 1; }
-    } else if (animState === 'slam') {
-      slamT += dt * 4.2;
-      if (slamT >= 1) {
-        animState = 'flip';
-        flipAngle = 0;
-      }
-    } else if (animState === 'flip') {
-      const targetAngle = willFlipWin ? Math.PI : Math.PI * 0.58;
-      flipAngle += dt * 7.2;
-      if (flipAngle >= targetAngle) {
-        flipAngle = targetAngle;
-        if (willFlipWin) {
-          animState = 'done';
-          statusTxt = `漂亮掀翻！赢得【${targetCardStr}】！`;
-          setTimeout(() => {
-            if (!alive) return;
-            alive = false;
-            onFinish({ won: true, grade: turnsLeft >= 2 ? 'S' : 'A' });
-          }, 760);
-        } else if (turnsLeft > 0) {
-          setTimeout(() => {
-            if (!alive) return;
-            animState = 'aim';
-            flipAngle = 0;
-            statusTxt = `小周拍空一掌轮到你！剩 ${turnsLeft} 拍机会，瞄准金区！`;
-          }, 420);
-          animState = 'pause';
+    if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
+
+    // 状态推进
+    if (phase === 'player_aim' && charging) {
+      chargeRing += chargeDir * dt * 1.35;
+      if (chargeRing <= 0.24) { chargeRing = 0.24; chargeDir = 1; }
+      if (chargeRing >= 1.0) { chargeRing = 1.0; chargeDir = -1; }
+    } else if (phase === 'player_slam') {
+      phaseT += dt * 6.5;
+      if (phaseT >= 1) {
+        cardStage = pendingStage;
+        stageTxtEl.textContent = STAGE_NAMES[cardStage];
+        if (cardStage >= 3) {
+          wonGame = true;
+          phase = 'card_react';
+          phaseT = 0;
+          rivalMood = 'shock';
+          rivalBubble = `“哇！！一整套直接被你拍翻了！林冲归你啦！”`;
         } else {
-          animState = 'done';
-          setTimeout(() => {
-            if (!alive) return;
-            alive = false;
-            onFinish({ won: false, grade: 'C' });
-          }, 680);
+          phase = 'card_react';
+          phaseT = 0;
         }
       }
+    } else if (phase === 'card_react') {
+      phaseT += dt * 2.6;
+      if (wonGame) {
+        flipAnimDeg = Math.min(180, phaseT * 240);
+        if (phaseT >= 0.85) showResultBanner(true);
+      } else if (phaseT >= 0.55) {
+        runXiaoZhouTurn();
+      }
+    } else if (phase === 'rival_turn') {
+      rivalSlapT += dt * 2.2;
+      if (rivalSlapT >= 0.55 && rivalSlapT - dt * 2.2 < 0.55) {
+        resolveXiaoZhouImpact();
+      }
+      if (rivalSlapT >= 1.05 && phase === 'rival_turn') {
+        phase = 'player_aim';
+      }
     }
 
-    // 绘制老式木纹课桌与三八线刻痕
-    ctx.fillStyle = '#b47b48';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#9a6538';
-    ctx.fillRect(0, 0, W, 32);
-    ctx.strokeStyle = 'rgba(74,55,40,0.22)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(24, 52); ctx.lineTo(W - 60, 52);
-    ctx.moveTo(W / 2 - 18, 36); ctx.lineTo(W / 2 - 18, H - 14);
-    ctx.stroke();
-
-    ctx.fillStyle = '#fffdf8';
-    ctx.font = 'bold 10.5px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(statusTxt, W / 2, 20);
-
-    // 课桌中央叠放的两张水浒卡（底注卡 + 小周缺卡）
-    const cx = W / 2 - 16, cy = 124;
-    // 底注卡
+    // ========== 开始绘制 2.5D 第一人称教室课桌全景 ==========
     ctx.save();
-    ctx.translate(cx - 10, cy + 4);
-    ctx.rotate(-0.12);
-    ctx.fillStyle = '#7c2d12';
-    ctx.fillRect(-26, -34, 52, 68);
-    ctx.strokeStyle = '#fde047';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-23, -31, 46, 62);
-    ctx.restore();
-
-    // 目标翻转卡（3D 纵向缩放模拟真实掀翻！）
-    ctx.save();
-    const liftY = animState === 'flip' ? Math.sin(Math.min(1, flipAngle / Math.PI) * Math.PI) * 42 : 0;
-    const scaleX = Math.cos(flipAngle);
-    const showingFront = flipAngle > Math.PI / 2;
-    ctx.translate(cx + 8, cy - liftY);
-    ctx.scale(Math.abs(scaleX) < 0.08 ? 0.08 : Math.abs(scaleX), 1);
-    ctx.fillStyle = showingFront ? '#fef3c7' : '#991b1b';
-    ctx.fillRect(-28, -36, 56, 72);
-    ctx.strokeStyle = '#4a3728';
-    ctx.lineWidth = 2.2;
-    ctx.strokeRect(-28, -36, 56, 72);
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(-24, -32, 48, 64);
-    ctx.fillStyle = showingFront ? '#7c2d12' : '#fde68a';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(showingFront ? targetCardStr.slice(3) : '水浒英雄', 0, 4);
-    if (showingFront) {
-      ctx.fillStyle = '#15803d';
-      ctx.font = 'bold 9px sans-serif';
-      ctx.fillText('正面朝上！', 0, 20);
+    if (shakeT > 0) {
+      ctx.translate((Math.random() - 0.5) * shakeAmp * 2, (Math.random() - 0.5) * shakeAmp * 2);
     }
-    ctx.restore();
 
-    // 悬停或拍下的手掌投影
-    const hx = cx - 44 + Math.sin(handSway * 3.2) * 8;
-    const hy = animState === 'slam' ? cy + 8 : cy - 12 + Math.cos(handSway * 2.5) * 4;
-    ctx.save();
-    ctx.translate(hx, hy);
-    ctx.scale(animState === 'slam' ? 1.12 : 1, animState === 'slam' ? 0.92 : 1);
-    ctx.fillStyle = animState === 'slam' ? '#f59e0b' : 'rgba(254, 215, 170, 0.88)';
+    // 1. 远景教室暖墙与两侧课桌透视角
+    ctx.fillStyle = '#e7d7be';
+    ctx.fillRect(0, 0, W, 92);
+    ctx.fillStyle = '#be8c59';
+    ctx.fillRect(0, 26, 44, 66);
+    ctx.fillRect(W - 44, 26, 44, 66);
+    ctx.strokeStyle = '#4a3222';
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(0, 26, 44, 66);
+    ctx.strokeRect(W - 44, 26, 44, 66);
+
+    // 2. 课桌对面的同桌小周（蓝白校服 + 双拳撑桌 + 实时表情与对话气泡）
+    const zx = 114, zy = 54;
+    // 校服躯干与蓝白双道杠袖子
+    ctx.fillStyle = '#4f83b8';
     ctx.beginPath();
-    ctx.ellipse(0, 0, stance === 'cup' ? 24 : 18, stance === 'cup' ? 28 : 32, stance === 'chop' ? 0.35 : 0, 0, Math.PI * 2);
+    ctx.roundRect(zx - 38, zy - 6, 76, 46, 14);
     ctx.fill();
-    ctx.strokeStyle = '#4a3728';
+    ctx.strokeRect(zx - 38, zy - 6, 76, 46);
+    ctx.fillStyle = '#fffdf9';
+    ctx.fillRect(zx - 16, zy - 4, 32, 42);
+    // 领口
+    ctx.strokeStyle = '#365f8a';
+    ctx.beginPath(); ctx.moveTo(zx - 12, zy - 4); ctx.lineTo(zx, zy + 8); ctx.lineTo(zx + 12, zy - 4); ctx.stroke();
+    // 脑袋与短发
+    ctx.fillStyle = '#fde0c2';
+    ctx.strokeStyle = '#4a3222';
+    ctx.beginPath(); ctx.arc(zx, zy - 20, 19, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3b281c';
+    ctx.beginPath(); ctx.arc(zx, zy - 25, 19.5, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+    // 表情眼睛与嘴巴
+    ctx.fillStyle = '#3b281c';
+    if (rivalMood === 'shock') {
+      ctx.beginPath(); ctx.arc(zx - 6, zy - 20, 2.6, 0, Math.PI * 2); ctx.arc(zx + 6, zy - 20, 2.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(zx, zy - 11, 4, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.fillRect(zx - 8, zy - 21, 3.2, 3.2);
+      ctx.fillRect(zx + 5, zy - 21, 3.2, 3.2);
+      ctx.beginPath();
+      if (rivalMood === 'nervous') {
+        ctx.moveTo(zx - 5, zy - 11); ctx.lineTo(zx + 5, zy - 12);
+      } else {
+        ctx.arc(zx, zy - 13, 5, 0.1, Math.PI - 0.1);
+      }
+      ctx.stroke();
+    }
+    // 小周撑在桌沿的两只小手（轮到小周拍卡时右手前伸拍下！）
+    ctx.fillStyle = '#fde0c2';
+    const rHandY = (phase === 'rival_turn' && rivalSlapT < 0.7)
+      ? zy + 30 + Math.sin(Math.min(1, rivalSlapT / 0.55) * Math.PI) * 58
+      : zy + 30;
+    const rHandX = (phase === 'rival_turn' && rivalSlapT < 0.7)
+      ? zx - 26 + Math.sin(Math.min(1, rivalSlapT / 0.55) * Math.PI) * 44
+      : zx - 34;
+    ctx.beginPath(); ctx.arc(rHandX, rHandY, 8.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(zx + 34, zy + 30, 8.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+    // 小周右侧漫画台词框
+    ctx.fillStyle = '#fffdf8';
+    ctx.strokeStyle = '#4a3222';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.roundRect(164, 14, 170, 48, 10);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a281b';
+    ctx.font = 'bold 10.5px sans-serif';
+    ctx.textAlign = 'left';
+    const bLine1 = rivalBubble.slice(0, 13);
+    const bLine2 = rivalBubble.slice(13, 27);
+    ctx.fillText(bLine1, 173, 34);
+    if (bLine2) ctx.fillText(bLine2, 173, 50);
+
+    // 3. 2.5D 梯形老式木纹课桌主桌面（y: 84..272 + 前沿厚木边）
+    const deskGrad = ctx.createLinearGradient(0, 84, 0, 266);
+    deskGrad.addColorStop(0, '#c7925b');
+    deskGrad.addColorStop(1, '#a97441');
+    ctx.fillStyle = deskGrad;
+    ctx.fillRect(0, 84, W, 182);
+    // 课桌前侧立面厚边
+    ctx.fillStyle = '#7e5229';
+    ctx.fillRect(0, 266, W, 28);
+    ctx.strokeStyle = '#4a3222';
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 84); ctx.lineTo(W, 84);
+    ctx.moveTo(0, 266); ctx.lineTo(W, 266);
     ctx.stroke();
-    ctx.fillStyle = '#4a3728';
-    ctx.font = 'bold 9.5px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(stance === 'cup' ? '窝风掌' : '斜切掌', 0, 4);
+
+    // 桌面木纹细痕与白色粉笔「三八线」
+    ctx.strokeStyle = 'rgba(74, 48, 24, 0.22)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(18, 136); ctx.lineTo(118, 136);
+    ctx.moveTo(226, 206); ctx.lineTo(328, 206);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 252, 245, 0.72)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 3]);
+    ctx.beginPath();
+    ctx.moveTo(deskCx, 87);
+    ctx.lineTo(deskCx, 263);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255, 252, 245, 0.88)';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('三八线', deskCx + 6, 102);
+
+    // 左上桌角：复古红铁皮文具盒与半块白橡皮
+    ctx.save();
+    ctx.translate(42, 108);
+    ctx.rotate(-0.22);
+    ctx.fillStyle = '#c84b39';
+    ctx.strokeStyle = '#4a3222';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.roundRect(-34, -12, 68, 24, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(-26, -5, 50, 4);
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillRect(-26, 2, 42, 4);
+    ctx.restore();
+    ctx.fillStyle = '#f5f5f4';
+    ctx.strokeStyle = '#4a3222';
+    ctx.beginPath(); ctx.roundRect(14, 132, 22, 13, 3); ctx.fill(); ctx.stroke();
+
+    // 4. 黄金吃风带（微翘迎风口外 1–2cm 发光月牙甜区 + 白色气流丝提示）
+    const sweet = getSweetSpot();
+    if (cardStage < 3 && !wonGame) {
+      const pulse = 0.75 + 0.25 * Math.sin(now / 180);
+      const userNear = Math.hypot(aimX - sweet.x, aimY - sweet.y) <= (stance === 'cup' ? 34 : 25);
+
+      ctx.save();
+      ctx.translate(sweet.x, sweet.y);
+      ctx.fillStyle = userNear ? `rgba(253, 224, 71, ${0.46 * pulse})` : `rgba(251, 191, 36, ${0.28 * pulse})`;
+      ctx.strokeStyle = userNear ? '#fde047' : 'rgba(253, 224, 71, 0.85)';
+      ctx.lineWidth = userNear ? 2.6 : 1.8;
+      ctx.beginPath();
+      if (windSide === 'right') {
+        ctx.arc(-16, -4, 34, -0.75, 0.95);
+      } else {
+        ctx.arc(16, -4, 34, Math.PI - 0.95, Math.PI + 0.75);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, stance === 'cup' ? 24 : 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#fffbeb';
+      ctx.font = 'bold 9.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(userNear ? '最佳吃风点!' : '黄金吃风带', 0, 3);
+      ctx.restore();
+
+      // 白色迎风气流丝
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.lineWidth = 1.4;
+      const dir = windSide === 'right' ? 1 : -1;
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(deskCx + dir * 64, deskCy - 8 + i * 11);
+        ctx.quadraticCurveTo(deskCx + dir * 44, deskCy + 4 + i * 8, deskCx + dir * 24, deskCy + 12);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#fffbeb';
+      ctx.font = 'bold 9.5px sans-serif';
+      ctx.textAlign = dir > 0 ? 'left' : 'right';
+      ctx.fillText(cardStage === 0 ? '平贴紧实' : '微翘迎风口', deskCx + dir * 32, deskCy - 16);
+      ctx.restore();
+    }
+
+    // 5. 桌中央立体双叠水浒卡（含翘角阴影、半立透视与 180 度翻面正面英雄画）
+    // 底下押注卡
+    ctx.save();
+    ctx.translate(deskCx - 9, deskCy + 4);
+    ctx.rotate(-0.07);
+    ctx.fillStyle = 'rgba(30,16,6,0.34)';
+    ctx.fillRect(-30, -37, 62, 78);
+    ctx.fillStyle = '#784421';
+    ctx.strokeStyle = '#3b2312';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(-30, -39, 60, 76, 4); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-25, -34, 50, 66);
     ctx.restore();
 
-    // 粉笔灰气浪粒子
+    // 顶层目标缺卡（随 4 阶物理姿态变形）
+    ctx.save();
+    const liftPx = cardStage === 1 ? 4 : cardStage === 2 ? 14 : (wonGame ? Math.sin((flipAnimDeg / 180) * Math.PI) * 38 : 0);
+    ctx.translate(deskCx + 5, deskCy - liftPx);
+
+    // 翘角或半立底部镂空黑影（越翘阴影越深，一眼看出吃风口！）
+    ctx.fillStyle = 'rgba(24, 12, 4, 0.42)';
+    ctx.beginPath();
+    ctx.ellipse(windSide === 'right' ? 8 : -8, 36 + liftPx * 0.5, 30, 6 + cardStage * 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (wonGame || cardStage >= 3) {
+      const rad = (Math.max(110, flipAnimDeg) * Math.PI) / 180;
+      const sx = Math.max(0.15, Math.abs(Math.cos(rad)));
+      ctx.scale(sx, 1);
+      // 翻开后的梁山英雄闪卡正面！
+      ctx.fillStyle = '#fef3c7';
+      ctx.strokeStyle = '#4a3222';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.roundRect(-31, -40, 62, 78, 5); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-26, -35, 52, 68);
+      ctx.fillStyle = '#b91c1c';
+      ctx.beginPath(); ctx.arc(0, -8, 15, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fde047';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('梁山好汉', 0, -5);
+      ctx.fillStyle = '#4a2511';
+      ctx.font = 'bold 10.5px sans-serif';
+      ctx.fillText(targetCardStr.slice(3), 0, 22);
+    } else {
+      // 背面朝上（带真实卷角微翘几何折角！）
+      const tilt = cardStage === 2 ? (windSide === 'right' ? -0.22 : 0.22) : (cardStage === 1 ? (windSide === 'right' ? -0.06 : 0.06) : 0);
+      ctx.rotate(tilt);
+      ctx.scale(cardStage === 2 ? 0.84 : 1, 1);
+
+      ctx.fillStyle = '#854d27';
+      ctx.strokeStyle = '#3b2312';
+      ctx.lineWidth = 2.1;
+      ctx.beginPath(); ctx.roundRect(-31, -40, 62, 78, 4); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#d4a359';
+      ctx.lineWidth = 1.3;
+      ctx.strokeRect(-26, -35, 52, 68);
+      ctx.fillStyle = '#f5deb3';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('水浒英雄谱', 0, 3);
+
+      // 绘制右下或左下微翘折角高光三角（还原参考图卷角细节！）
+      if (cardStage >= 1) {
+        const cxCorner = windSide === 'right' ? 31 : -31;
+        const dir = windSide === 'right' ? -1 : 1;
+        const curlSz = cardStage === 2 ? 22 : 15;
+        ctx.fillStyle = '#f5ebd6';
+        ctx.strokeStyle = '#4a3222';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(cxCorner, 38 - curlSz);
+        ctx.quadraticCurveTo(cxCorner + dir * curlSz * 0.85, 38 - curlSz * 0.85, cxCorner + dir * curlSz, 38);
+        ctx.lineTo(cxCorner, 38);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // 6. 掌风冲击气环与粉笔灰粒子
+    windPuffs = windPuffs.filter(w => w.life > 0);
+    for (const w of windPuffs) {
+      w.life -= dt;
+      w.r += (w.maxR - w.r) * dt * 11;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, w.life * 2.4);
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(w.x, w.y, w.r, w.r * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+
     dust = dust.filter(p => p.life > 0);
     for (const p of dust) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.life -= dt * 1.4;
+      p.life -= dt;
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.globalAlpha = Math.max(0, p.life * 1.4);
       ctx.fillStyle = '#fffbeb';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
-    // 右侧掌风蓄力槽与金色爆风甜区
-    const bx = W - 36, by = 46, bw = 16, bh = 156;
-    ctx.fillStyle = 'rgba(30, 20, 12, 0.68)';
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = '#4a3728';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bx, by, bw, bh);
+    // 7. 第一人称前景：玩家的真实一双立体手！
+    const liftAmt = phase === 'player_aim'
+      ? (charging ? 0.55 + (1 - chargeRing) * 0.45 : 0.22 + Math.sin(now / 260) * 0.06)
+      : (phase === 'player_slam' ? Math.max(0, 1 - phaseT * 1.8) : 0.15);
+    const squashAmt = phase === 'player_slam' && phaseT > 0.55 ? 1 : 0;
 
-    const zMin = stance === 'cup' ? 0.62 : 0.74;
-    const zMax = 0.90;
-    const zyTop = by + bh * (1 - zMax);
-    const zyH = bh * (zMax - zMin);
-    ctx.fillStyle = '#fde047';
-    ctx.fillRect(bx + 2, zyTop, bw - 4, zyH);
+    if (stance === 'quake') {
+      drawKidHand(deskCx, deskCy + 34, { mode: 'quake_pair', lift: liftAmt, slamSquash: squashAmt, tingle: quakeCooldown > 0 });
+    } else {
+      // 左手扶桌沿 + 右手悬于瞄准点随时下劈
+      drawKidHand(68, 242, { isLeft: true, lift: 0, tingle: quakeCooldown > 0 });
+      drawKidHand(aimX, aimY + 34, { isLeft: false, mode: stance, lift: liftAmt, slamSquash: squashAmt, tingle: quakeCooldown > 0 });
+    }
 
-    const curY = by + bh * (1 - meter);
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(bx - 4, curY - 3, bw + 8, 6);
+    // 8. 飘字战况提示
+    floatTips = floatTips.filter(f => f.life > 0);
+    for (const f of floatTips) {
+      f.y -= dt * 22;
+      f.life -= dt;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, f.life * 1.6);
+      ctx.font = 'bold 11.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(42,24,10,0.85)';
+      ctx.strokeText(f.txt, f.x, f.y);
+      ctx.fillStyle = f.col;
+      ctx.fillText(f.txt, f.x, f.y);
+      ctx.restore();
+    }
 
+    ctx.restore();
     rafId = requestAnimationFrame(loop);
   }
   rafId = requestAnimationFrame(loop);

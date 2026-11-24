@@ -4,8 +4,10 @@
 // 3. 《时光画片·大家来找茬》（10 处动态细节池每局随机抽 5 处不同，上下双画布同步红圈标注）
 // 严格遵循纯中文零表情符号规范。
 
-import { pxIcon } from './icons.js?v=s40';
-import { triggerHaptic } from './vfxAndUi.js?v=s40';
+import { pxIcon } from './icons.js?v=s51';
+import { triggerHaptic } from './vfxAndUi.js?v=s51';
+import { loadCharacterSprites } from './spriteLoader.js?v=s51';
+import { getSubStageIndex } from './engine.js?v=s51';
 
 function setupHiDpi(canvas, w, h) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -40,282 +42,851 @@ function playBeatTone(freq = 520, dur = 0.06) {
 }
 
 // ============================================================================
-// 1. 《魔性节拍大师》（广播体操领操 / 职场极速敲键卡点）
+// 1. 《领操台·魔性节拍大师 2.0》（真主角立绘分件体操动作 + 2K 左右双轨 + 长按滑条尾判 + 三档难度）
 // ============================================================================
-export function openRhythmMasterGame(container, state, opts = {}, onFinish) {
-  const W = 342, H = 226;
-  const isChild = state.age <= 18;
-  const titleText = isChild ? '魔性节拍大师 · 大课间广播体操' : '魔性节拍大师 · 极速键盘卡点';
+const RHYTHM_DIFFS = {
+  easy: {
+    id: 'easy', label: '简单 · 1.0x', dur: 28, mult: 1.0, speed: 158,
+    holdProb: 0.22, doubleProb: 0.06, sScore: 260, aScore: 175, bScore: 95,
+    intervals: [0.68, 0.68, 0.56, 0.68, 0.64, 0.56, 0.68, 0.76]
+  },
+  normal: {
+    id: 'normal', label: '中等 · 1.4x', dur: 36, mult: 1.4, speed: 192,
+    holdProb: 0.34, doubleProb: 0.14, sScore: 430, aScore: 290, bScore: 165,
+    intervals: [0.52, 0.52, 0.38, 0.50, 0.52, 0.38, 0.38, 0.58]
+  },
+  hard: {
+    id: 'hard', label: '困难 · 1.8x冲S', dur: 45, mult: 1.8, speed: 228,
+    holdProb: 0.42, doubleProb: 0.22, sScore: 640, aScore: 440, bScore: 250,
+    intervals: [0.40, 0.38, 0.28, 0.38, 0.42, 0.28, 0.28, 0.44]
+  }
+};
 
-  let score = 0;
-  let combo = 0;
-  let maxCombo = 0;
-  let timeLeft = 22;
-  let poseIdx = 0; // 0:预备 1:伸展 2:扩胸 3:踢腿 4:腾跃 -1:同手同脚出糗
-  let poseTimer = 0;
-  let beats = [];
-  let pops = [];
-  let spawnAcc = 0.25;
-  let patternStep = 0;
+export function openRhythmMasterGame(container, state, opts = {}, onFinish) {
+  const W = 346, H = 304;
+  const isChild = state.age <= 18;
+  const titleText = isChild ? '魔性节拍大师 · 大课间领操台' : '魔性节拍大师 · 律动舞台';
+  let curDiffKey = 'normal';
+  let heroImg = null;
+  let heroHeadBox = null;
   let alive = true;
   let rafId = 0;
 
-  // 富有韵律感的八拍广播体操鼓点间隔序列（单拍 + 连拍）
-  const rhythmIntervals = [0.58, 0.58, 0.34, 0.52, 0.56, 0.34, 0.34, 0.62];
-
-  container.innerHTML = `
-    <div class="mg-box arc-box">
-      <div class="mg-head">
-        <h3 style="display:flex;align-items:center;gap:6px;">${pxIcon('dance', 16)} ${titleText}</h3>
-        <button class="btn ghost" id="rm-skip">一键保底</button>
-      </div>
-      <div class="arc-hud">
-        <span>剩余：<b id="rm-time">22.0s</b></span>
-        <span>连击：<b id="rm-combo">0</b></span>
-        <span>得分：<b id="rm-score">0</b>（250分评 S）</span>
-      </div>
-      <div class="arc-canvas-wrap">
-        <canvas id="rm-cv"></canvas>
-      </div>
-      <button class="btn primary arc-hold-btn" id="rm-tap">当圆环重合左侧金圈瞬间 · 单指敲击卡点！</button>
-    </div>
-  `;
-
-  const cv = container.querySelector('#rm-cv');
-  const ctx = setupHiDpi(cv, W, H);
-  const timeEl = container.querySelector('#rm-time');
-  const cbEl = container.querySelector('#rm-combo');
-  const scEl = container.querySelector('#rm-score');
-  const tapBtn = container.querySelector('#rm-tap');
-
-  function finishGame(isAuto = false) {
-    if (!alive) return;
-    alive = false;
-    cancelAnimationFrame(rafId);
-    if (isAuto) {
-      return onFinish({
-        grade: 'B', score: 135, health: 1, mood: 2,
-        note: isChild ? '跟着大部队做完广播体操（健康 +1，心态 +2）' : '顺畅敲完今日文稿（心态 +2）'
-      });
+  // 异步载入玩家当前真实性别与年龄段的去底主角立绘（精准扫描真实非透明像素边界，提取完整发型+五官笑脸！）
+  const stageIdx = getSubStageIndex(state.age);
+  loadCharacterSprites(state.gender || 'male').then(list => {
+    const src = list?.[stageIdx];
+    if (src) {
+      const im = new Image();
+      im.onload = () => {
+        heroImg = im;
+        try {
+          const oc = document.createElement('canvas');
+          oc.width = im.width; oc.height = im.height;
+          const octx = oc.getContext('2d');
+          octx.drawImage(im, 0, 0);
+          const d = octx.getImageData(0, 0, im.width, im.height).data;
+          let topY = im.height, botY = 0;
+          for (let y = 0; y < im.height; y++) {
+            for (let x = 0; x < im.width; x++) {
+              if (d[(y * im.width + x) * 4 + 3] > 30) {
+                if (y < topY) topY = y;
+                if (y > botY) botY = y;
+              }
+            }
+          }
+          if (botY > topY + 12) {
+            const charH = botY - topY + 1;
+            const headRatio = state.age <= 12 ? 0.44 : (state.age <= 18 ? 0.36 : 0.30);
+            const hEnd = Math.min(im.height, Math.round(topY + charH * headRatio));
+            let lx = im.width, rx = 0;
+            for (let y = topY; y < hEnd; y++) {
+              for (let x = 0; x < im.width; x++) {
+                if (d[(y * im.width + x) * 4 + 3] > 30) {
+                  if (x < lx) lx = x;
+                  if (x > rx) rx = x;
+                }
+              }
+            }
+            if (rx > lx + 6) {
+              const pad = 2;
+              const sx = Math.max(0, lx - pad);
+              const sy = Math.max(0, topY - pad);
+              const sw = Math.min(im.width - sx, rx - lx + 1 + pad * 2);
+              const sh = Math.min(im.height - sy, hEnd - sy);
+              heroHeadBox = { sx, sy, sw, sh };
+            }
+          }
+        } catch (_) {}
+      };
+      im.src = src;
     }
-    const grade = score >= 250 ? 'S' : score >= 170 ? 'A' : score >= 95 ? 'B' : 'C';
-    onFinish({
-      grade,
-      score,
-      health: isChild ? (grade === 'S' ? 2 : 1) : 1,
-      mood: grade === 'S' ? 5 : grade === 'A' ? 3 : 2,
-      expr: isChild && grade === 'S' ? 2 : 0,
-      pro: !isChild && grade === 'S' ? 1 : 0,
-      fatigueDelta: grade === 'S' ? -1 : 0,
-      note: `最高 ${maxCombo} 连击！节拍大师得分 ${score}（${grade} 级）！`
+  }).catch(() => {});
+
+  function mountWithDiff(diffKey) {
+    if (rafId) cancelAnimationFrame(rafId);
+    curDiffKey = diffKey;
+    const cfg = RHYTHM_DIFFS[curDiffKey] || RHYTHM_DIFFS.normal;
+
+    let score = 0;
+    let combo = 0;
+    let maxCombo = 0;
+    let timeLeft = cfg.dur;
+    // 0:预备踏步 1:V字高举伸展 2:扩胸平展 3:活力高踢腿 5:弓步伸展定格(长按专属!) -1:抢拍同手同脚出糗
+    let poseIdx = 0;
+    let poseTimer = 0;
+    let notes = []; // { id, lane: 0|1, kind: 'tap'|'hold', y, lenPx, gold, hitHead, holding, completed, missed }
+    let nextNoteId = 1;
+    let pops = [];
+    let spawnAcc = 0.35;
+    let stepIdx = 0;
+    let holdTickAcc = 0;
+    const lanePointers = { 0: null, 1: null };
+    const laneFlash = [0, 0];
+
+    container.innerHTML = `
+      <div class="rm2-box">
+        <div class="rm2-header">
+          <div class="rm2-title-row">
+            <h3>${titleText}</h3>
+            <button class="btn ghost rm2-skip" id="rm-skip">一键保底</button>
+          </div>
+          <div class="rm2-diff-row">
+            ${Object.values(RHYTHM_DIFFS).map(d => `
+              <button class="rm2-diff-pill ${d.id === curDiffKey ? 'active' : ''}" data-diff="${d.id}">
+                [${d.label}${d.id === curDiffKey ? ' (当前)' : ''}]
+              </button>
+            `).join('')}
+          </div>
+          <div class="rm2-hud-row">
+            <span>剩余 <b id="rm-time">${cfg.dur.toFixed(1)}s</b></span>
+            <span>·</span>
+            <span>连击 <b id="rm-combo">0</b></span>
+            <span>·</span>
+            <span>得分 <b id="rm-score">0</b> <small>(${cfg.sScore}评S)</small></span>
+          </div>
+        </div>
+
+        <div class="rm2-canvas-wrap">
+          <canvas id="rm-cv"></canvas>
+        </div>
+
+        <div class="rm2-pad-bar">
+          <button class="rm2-pad left" id="rm-pad-0">左手拍（单点 / 按住长条）</button>
+          <button class="rm2-pad right" id="rm-pad-1">右手拍（单点 / 按住长条）</button>
+        </div>
+      </div>
+    `;
+
+    const cv = container.querySelector('#rm-cv');
+    const ctx = setupHiDpi(cv, W, H);
+    const timeEl = container.querySelector('#rm-time');
+    const cbEl = container.querySelector('#rm-combo');
+    const scEl = container.querySelector('#rm-score');
+    const pad0 = container.querySelector('#rm-pad-0');
+    const pad1 = container.querySelector('#rm-pad-1');
+
+    container.querySelectorAll('[data-diff]').forEach(btn => {
+      btn.onclick = () => {
+        if (!alive) return;
+        triggerHaptic('light');
+        mountWithDiff(btn.dataset.diff);
+      };
     });
-  }
 
-  container.querySelector('#rm-skip').onclick = () => finishGame(true);
-
-  const TARGET_X = 68;
-  const TRACK_Y = 178;
-
-  function hitBeat() {
-    if (!alive) return;
-    // 找距离靶心最近的一颗节拍球
-    let best = null;
-    let bestDist = 999;
-    for (const b of beats) {
-      if (b.hit) continue;
-      const d = Math.abs(b.x - TARGET_X);
-      if (d < bestDist) { bestDist = d; best = b; }
-    }
-
-    if (best && bestDist <= 38) {
-      best.hit = true;
-      const isPerf = bestDist <= 17;
-      combo++;
-      if (combo > maxCombo) maxCombo = combo;
-      const add = (isPerf ? 26 : 15) + Math.min(12, Math.floor(combo / 3) * 3) + (best.gold ? 8 : 0);
-      score += add;
-      poseIdx = (poseIdx % 4) + 1;
-      poseTimer = 0.42;
-      playBeatTone(isPerf ? (best.gold ? 880 : 660) : 520, 0.07);
-      triggerHaptic(isPerf ? 'medium' : 'light');
-      pops.push({
-        x: TARGET_X, y: TRACK_Y - 26,
-        txt: isPerf ? `完美 +${add}` : `稳准 +${add}`,
-        col: isPerf ? '#fde047' : '#86efac',
-        life: 0.75
-      });
-    } else {
-      combo = 0;
-      poseIdx = -1;
-      poseTimer = 0.35;
-      playBeatTone(210, 0.08);
-      pops.push({ x: TARGET_X, y: TRACK_Y - 26, txt: '抢拍出糗', col: '#fca5a5', life: 0.65 });
-    }
-    cbEl.textContent = String(combo);
-    scEl.textContent = String(score);
-  }
-
-  tapBtn.addEventListener('pointerdown', e => { e.preventDefault(); hitBeat(); });
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); hitBeat(); });
-
-  let lastTs = performance.now();
-  function loop(now) {
-    if (!alive) return;
-    const dt = Math.min(0.05, (now - lastTs) / 1000);
-    lastTs = now;
-    timeLeft -= dt;
-    if (timeLeft <= 0) {
-      finishGame(false);
-      return;
-    }
-    timeEl.textContent = `${Math.max(0, timeLeft).toFixed(1)}s`;
-    if (poseTimer > 0) {
-      poseTimer -= dt;
-      if (poseTimer <= 0) poseIdx = 0;
-    }
-
-    if (timeLeft > 1.2) {
-      spawnAcc -= dt;
-      if (spawnAcc <= 0) {
-        const iv = rhythmIntervals[patternStep % rhythmIntervals.length];
-        const isGold = iv <= 0.35 || patternStep % 4 === 3;
-        beats.push({ x: W + 18, gold: isGold, hit: false });
-        spawnAcc = iv;
-        patternStep++;
+    function finishGame(isAuto = false) {
+      if (!alive) return;
+      alive = false;
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      if (isAuto) {
+        return onFinish({
+          grade: 'B', score: 150, health: 1, mood: 2,
+          note: isChild ? '跟着大部队做完广播体操（健康 +1，心态 +2）' : '顺畅完成律动卡点（心态 +2）'
+        });
       }
+      const finalScore = Math.round(score);
+      const grade = finalScore >= cfg.sScore ? 'S' : finalScore >= cfg.aScore ? 'A' : finalScore >= cfg.bScore ? 'B' : 'C';
+      const mult = cfg.mult;
+      const healthGain = Math.max(1, Math.round((grade === 'S' ? 1.4 : 0.9) * (isChild ? mult : 1)));
+      const moodGain = Math.round((grade === 'S' ? 3.2 : grade === 'A' ? 2.2 : 1.5) * mult);
+      const statGain = grade === 'S' ? (curDiffKey === 'hard' ? 2 : curDiffKey === 'normal' ? 1 : 0) : 0;
+
+      onFinish({
+        grade,
+        score: finalScore,
+        health: Math.min(3, healthGain),
+        mood: Math.min(7, moodGain),
+        expr: isChild ? statGain : 0,
+        pro: !isChild ? statGain : 0,
+        fatigueDelta: grade === 'S' ? -2 : -1,
+        hardSBonus: curDiffKey === 'hard' && grade === 'S',
+        note: `【${cfg.label.split(' ')[0]}】最高 ${maxCombo} 连击，得分 ${finalScore}（${grade} 级）！`
+      });
     }
 
-    for (const b of beats) {
-      b.x -= 195 * dt;
-      if (!b.hit && b.x < TARGET_X - 36) {
-        b.hit = true;
+    container.querySelector('#rm-skip').onclick = () => finishGame(true);
+
+    // 2K 透视双轨坐标换算（上窄下宽立体音游跑道）
+    const STAGE_BOTTOM = 152;
+    const HIT_Y = 272;
+    const laneXAtY = (lane, y) => {
+      const t = Math.max(0, Math.min(1.12, (y - STAGE_BOTTOM) / (HIT_Y - STAGE_BOTTOM)));
+      const center = W / 2;
+      const halfSpan = 34 + t * 52;
+      return lane === 0 ? center - halfSpan : center + halfSpan;
+    };
+
+    function syncHud() {
+      cbEl.textContent = String(combo);
+      scEl.textContent = String(Math.round(score));
+    }
+
+    function pressLane(lane) {
+      if (!alive) return;
+      laneFlash[lane] = 0.18;
+      pad0.classList.toggle('pressed', lane === 0 ? true : pad0.classList.contains('pressed'));
+      if (lane === 1) pad1.classList.add('pressed');
+
+      let best = null;
+      let bestDist = 999;
+      for (const n of notes) {
+        if (n.lane !== lane || n.completed || n.missed || n.hitHead) continue;
+        const d = Math.abs(n.y - HIT_Y);
+        if (d < bestDist) { bestDist = d; best = n; }
+      }
+
+      if (best && bestDist <= 34) {
+        const isPerf = bestDist <= 16;
+        best.hitHead = true;
+        combo++;
+        if (combo > maxCombo) maxCombo = combo;
+        const basePts = (isPerf ? 26 : 16) + Math.min(10, Math.floor(combo / 4) * 2) + (best.gold ? 10 : 0);
+        score += basePts;
+
+        if (best.kind === 'hold') {
+          best.holding = true;
+          poseIdx = 5; // 弓步伸展持续定格！
+          poseTimer = 2.0;
+          playBeatTone(isPerf ? 587 : 523, 0.14);
+          pops.push({ x: laneXAtY(lane, HIT_Y - 26), y: HIT_Y - 30, txt: `按住长条 +${basePts}`, col: '#fde047', life: 0.7 });
+        } else {
+          best.completed = true;
+          poseIdx = best.gold ? 3 : ((stepIdx + lane) % 3) + 1;
+          poseTimer = 0.42;
+          playBeatTone(isPerf ? (best.gold ? 880 : 660) : 520, 0.07);
+          pops.push({
+            x: laneXAtY(lane, HIT_Y - 26), y: HIT_Y - 30,
+            txt: isPerf ? `完美 +${basePts}` : `稳准 +${basePts}`,
+            col: isPerf ? '#fde047' : '#86efac',
+            life: 0.72
+          });
+        }
+        triggerHaptic(isPerf ? 'medium' : 'light');
+      } else {
         combo = 0;
         poseIdx = -1;
-        poseTimer = 0.32;
-        cbEl.textContent = '0';
-        pops.push({ x: TARGET_X, y: TRACK_Y - 24, txt: '漏拍', col: '#fca5a5', life: 0.6 });
+        poseTimer = 0.34;
+        playBeatTone(210, 0.07);
+        pops.push({ x: laneXAtY(lane, HIT_Y - 24), y: HIT_Y - 28, txt: '抢拍出糗', col: '#fca5a5', life: 0.58 });
+      }
+      syncHud();
+    }
+
+    function releaseLane(lane) {
+      if (lane === 0) pad0.classList.remove('pressed');
+      if (lane === 1) pad1.classList.remove('pressed');
+      if (!alive) return;
+
+      const holdingNote = notes.find(n => n.lane === lane && n.holding && !n.completed);
+      if (!holdingNote) return;
+
+      holdingNote.holding = false;
+      const tailY = holdingNote.y - holdingNote.lenPx;
+      const tailDist = Math.abs(tailY - HIT_Y);
+
+      if (tailDist <= 38 || tailY >= HIT_Y - 12) {
+        holdingNote.completed = true;
+        combo++;
+        if (combo > maxCombo) maxCombo = combo;
+        const tailPts = tailDist <= 18 ? 34 : 22;
+        score += tailPts;
+        poseIdx = 3;
+        poseTimer = 0.38;
+        playBeatTone(784, 0.09);
+        triggerHaptic('medium');
+        pops.push({ x: laneXAtY(lane, HIT_Y - 28), y: HIT_Y - 32, txt: `完美松手 +${tailPts}`, col: '#fde047', life: 0.78 });
+      } else {
+        // 提前太多松手：断条！
+        holdingNote.missed = true;
+        combo = 0;
+        poseIdx = -1;
+        poseTimer = 0.34;
+        playBeatTone(220, 0.08);
+        pops.push({ x: laneXAtY(lane, HIT_Y - 26), y: HIT_Y - 28, txt: '早松断拍', col: '#fca5a5', life: 0.65 });
+      }
+      syncHud();
+    }
+
+    // 多点触控绑定：底部左右双键 + 画布下半区左右车道直点全支持！
+    const bindPad = (el, lane) => {
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        el.setPointerCapture?.(e.pointerId);
+        lanePointers[lane] = e.pointerId;
+        pressLane(lane);
+      });
+      const up = e => {
+        if (lanePointers[lane] === e.pointerId || lanePointers[lane] !== null) {
+          lanePointers[lane] = null;
+          releaseLane(lane);
+        }
+      };
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    };
+    bindPad(pad0, 0);
+    bindPad(pad1, 1);
+
+    cv.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const rect = cv.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (W / Math.max(1, rect.width));
+      const lane = x < W / 2 ? 0 : 1;
+      cv.setPointerCapture?.(e.pointerId);
+      lanePointers[lane] = e.pointerId;
+      pressLane(lane);
+    });
+    cv.addEventListener('pointerup', e => {
+      for (const ln of [0, 1]) {
+        if (lanePointers[ln] === e.pointerId) {
+          lanePointers[ln] = null;
+          releaseLane(ln);
+        }
+      }
+    });
+
+    const onKeyDown = e => {
+      if (e.repeat) return;
+      if (e.key === 'f' || e.key === 'F' || e.key === 'ArrowLeft') pressLane(0);
+      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowRight') pressLane(1);
+    };
+    const onKeyUp = e => {
+      if (e.key === 'f' || e.key === 'F' || e.key === 'ArrowLeft') releaseLane(0);
+      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowRight') releaseLane(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    function spawnNextPattern() {
+      const iv = cfg.intervals[stepIdx % cfg.intervals.length];
+      stepIdx++;
+      const activeHoldLane = notes.find(n => !n.completed && !n.missed && n.kind === 'hold' && (n.y - n.lenPx) < STAGE_BOTTOM + 45)?.lane;
+
+      // 若某侧有一条尚未走完的长条，则只在另一侧出单点音符，实现正统 2K「左手长按 + 右手单点」！
+      if (activeHoldLane !== undefined) {
+        const otherLane = activeHoldLane === 0 ? 1 : 0;
+        notes.push({
+          id: nextNoteId++, lane: otherLane, kind: 'tap',
+          y: STAGE_BOTTOM + 4, lenPx: 0, gold: stepIdx % 4 === 0,
+          hitHead: false, holding: false, completed: false, missed: false
+        });
+        return iv;
+      }
+
+      const r = Math.random();
+      const lane = stepIdx % 2 === 0 ? 0 : 1;
+      if (r < cfg.holdProb && timeLeft > 3.2) {
+        const lenPx = Math.round(cfg.speed * (curDiffKey === 'easy' ? 0.58 : 0.72));
+        notes.push({
+          id: nextNoteId++, lane, kind: 'hold',
+          y: STAGE_BOTTOM + 4, lenPx, gold: true,
+          hitHead: false, holding: false, completed: false, missed: false
+        });
+        return iv + 0.18;
+      }
+      if (r < cfg.holdProb + cfg.doubleProb) {
+        // 双押重拍！
+        for (const ln of [0, 1]) {
+          notes.push({
+            id: nextNoteId++, lane: ln, kind: 'tap',
+            y: STAGE_BOTTOM + 4, lenPx: 0, gold: true,
+            hitHead: false, holding: false, completed: false, missed: false
+          });
+        }
+        return iv + 0.08;
+      }
+
+      const pickLane = Math.random() < 0.35 ? (1 - lane) : lane;
+      notes.push({
+        id: nextNoteId++, lane: pickLane, kind: 'tap',
+        y: STAGE_BOTTOM + 4, lenPx: 0, gold: stepIdx % 8 === 0,
+        hitHead: false, holding: false, completed: false, missed: false
+      });
+      return iv;
+    }
+
+    // 绘制站在水泥领操台上的真实主角立绘（真实提取头部发型 + 多关节像素服装四肢体操动作帧！）
+    function drawProtagonistOnPodium(now) {
+      const cx = W / 2, footY = 123;
+      const anyHolding = notes.some(n => n.holding);
+      const curPose = anyHolding ? 5 : poseIdx;
+      const beatBounce = Math.abs(Math.sin(now / 190)) * 2.5;
+      const jumpLift = curPose === 3 ? 11 : (curPose === 1 ? 4 : 0);
+
+      // 长按或高连击时的金色律动音波光环（还原参考图！）
+      if (anyHolding || combo >= 8) {
+        ctx.save();
+        const pulseR = 38 + Math.sin(now / 120) * 4;
+        ctx.strokeStyle = 'rgba(253, 224, 71, 0.78)';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath(); ctx.arc(cx, footY - 34, pulseR, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.15)';
+        ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx, footY + 1, 36, 7, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
+
+      // 脚底阴影
+      ctx.fillStyle = 'rgba(40, 28, 18, 0.28)';
+      ctx.beginPath(); ctx.ellipse(cx, footY + 2, curPose === 5 ? 30 : 20, 5, 0, 0, Math.PI * 2); ctx.fill();
+
+      ctx.save();
+      ctx.translate(cx, footY - jumpLift - (curPose === 0 ? beatBounce : 0));
+      if (curPose === -1) ctx.rotate(0.15);
+
+      const isFemale = state.gender === 'female';
+      const skin = '#fde0c4';
+      const outline = '#3f2a1d';
+      const pantsCol = isChild ? (isFemale ? '#e06c88' : '#3b6ca8') : '#334155';
+      const shirtBase = isChild ? (isFemale ? '#f472b6' : '#d9534f') : '#f8fafc';
+
+      // 1. 双腿动作分帧（含「弓步伸展」大跨步！）
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const drawLeg = (hipX, kneeX, kneeY, ankX, ankY) => {
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 8.5;
+        ctx.beginPath(); ctx.moveTo(hipX, -22); ctx.lineTo(kneeX, kneeY); ctx.lineTo(ankX, ankY); ctx.stroke();
+        ctx.strokeStyle = skin;
+        ctx.lineWidth = 5.2;
+        ctx.beginPath(); ctx.moveTo(hipX, -22); ctx.lineTo(kneeX, kneeY); ctx.lineTo(ankX, ankY); ctx.stroke();
+        // 短裤裤管
+        ctx.strokeStyle = pantsCol;
+        ctx.lineWidth = 8.5;
+        ctx.beginPath(); ctx.moveTo(hipX, -22); ctx.lineTo((hipX + kneeX) * 0.55, (kneeY - 22) * 0.55); ctx.stroke();
+        // 白色运动球鞋
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.roundRect(ankX - 6, ankY - 3, 12, 6, 2.5); ctx.fill(); ctx.stroke();
+      };
+
+      if (curPose === 5) {
+        // 标准「弓步伸展」大跨步定格！
+        drawLeg(-6, -18, -11, -18, 0);
+        drawLeg(6, 17, -10, 27, 0);
+      } else if (curPose === 3) {
+        // 活力侧高踢腿
+        drawLeg(-5, -8, -11, -9, 0);
+        drawLeg(5, 18, -17, 29, -14);
+      } else if (curPose === 2) {
+        // 开立扩胸步
+        drawLeg(-6, -12, -11, -15, 0);
+        drawLeg(6, 12, -11, 15, 0);
+      } else {
+        drawLeg(-5, -6, -11, -7, 0);
+        drawLeg(5, 6, -11, 7, 0);
+      }
+
+      // 2. 躯干服装（还原主角标志性红白横条纹衫 / 学院衫 / 职场衬衫）
+      ctx.fillStyle = shirtBase;
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.9;
+      ctx.beginPath();
+      ctx.roundRect(-11, -46, 22, 25, 4);
+      ctx.fill();
+      if (isChild && !isFemale) {
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = '#fff8ee';
+        for (let sy = -42; sy < -22; sy += 6) ctx.fillRect(-12, sy, 24, 3);
+        ctx.restore();
+      }
+      ctx.strokeRect(-11, -46, 22, 25);
+
+      // 短裤腰部连接
+      ctx.fillStyle = pantsCol;
+      ctx.fillRect(-10, -25, 20, 7);
+      ctx.strokeRect(-10, -25, 20, 7);
+
+      // 3. 双臂体操动作分帧
+      const drawArm = (shX, elX, elY, hdX, hdY) => {
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 7.2;
+        ctx.beginPath(); ctx.moveTo(shX, -42); ctx.lineTo(elX, elY); ctx.lineTo(hdX, hdY); ctx.stroke();
+        ctx.strokeStyle = skin;
+        ctx.lineWidth = 4.4;
+        ctx.beginPath(); ctx.moveTo(shX, -42); ctx.lineTo(elX, elY); ctx.lineTo(hdX, hdY); ctx.stroke();
+        // 短袖袖口
+        ctx.strokeStyle = shirtBase;
+        ctx.lineWidth = 7.6;
+        ctx.beginPath(); ctx.moveTo(shX, -42); ctx.lineTo((shX + elX) * 0.55, (-42 + elY) * 0.55); ctx.stroke();
+      };
+
+      if (curPose === 5) {
+        // 弓步平展双臂（180度水平舒展！）
+        drawArm(-11, -23, -43, -36, -43);
+        drawArm(11, 23, -43, 36, -43);
+      } else if (curPose === 1) {
+        // 第一节：高举 V 字伸展运动
+        drawArm(-11, -20, -54, -27, -66);
+        drawArm(11, 20, -54, 27, -66);
+      } else if (curPose === 2) {
+        // 第二节：屈肘扩胸运动
+        drawArm(-11, -25, -40, -18, -35);
+        drawArm(11, 25, -40, 18, -35);
+      } else if (curPose === 3) {
+        // 跳跃欢呼挥臂
+        drawArm(-11, -22, -34, -26, -26);
+        drawArm(11, 22, -55, 30, -65);
+      } else if (curPose === -1) {
+        // 抢拍同手同脚慌乱
+        drawArm(-11, -20, -30, -15, -22);
+        drawArm(11, 18, -50, 12, -58);
+      } else {
+        const sw = Math.sin(now / 190) * 5;
+        drawArm(-11, -17, -34, -19, -25 + sw);
+        drawArm(11, 17, -34, 19, -25 - sw);
+      }
+
+      // 4. 头部：精准贴合玩家真实主角立绘的头部与发型五官（非透明像素框自动对齐脖领！）
+      if (heroImg && heroHeadBox) {
+        const drawW = 31;
+        const drawH = Math.round((heroHeadBox.sh / heroHeadBox.sw) * drawW);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          heroImg,
+          heroHeadBox.sx, heroHeadBox.sy, heroHeadBox.sw, heroHeadBox.sh,
+          -drawW / 2, -45 - drawH + 4, drawW, drawH
+        );
+      } else {
+        ctx.fillStyle = skin;
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 1.9;
+        ctx.beginPath(); ctx.arc(0, -57, 12.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#3b2618';
+        ctx.beginPath(); ctx.arc(0, -60, 13, Math.PI * 0.92, Math.PI * 2.08); ctx.fill();
+        ctx.fillRect(-5, -57, 2.5, 2.5);
+        ctx.fillRect(3, -57, 2.5, 2.5);
+      }
+
+      // 漏拍出糗汗珠 / 动作招式名称小标
+      if (curPose === -1) {
+        ctx.fillStyle = '#60a5fa';
+        ctx.beginPath(); ctx.ellipse(15, -62, 2.5, 4.5, 0.2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+
+      const poseLabels = { 1: '伸展运动', 2: '扩胸运动', 3: '跳跃运动', 5: '弓步伸展', '-1': '同手同脚!' };
+      if (poseLabels[curPose]) {
+        ctx.fillStyle = curPose === -1 ? '#b91c1c' : '#4a3222';
+        ctx.font = 'bold 10.5px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(poseLabels[curPose], cx + 40, footY - 30);
       }
     }
-    beats = beats.filter(b => !b.hit && b.x > -24);
 
-    // 绘制舞台与狂热聚光灯
-    const fever = combo >= 6;
-    ctx.fillStyle = fever ? '#2d1b4e' : (isChild ? '#efe3cc' : '#262936');
-    ctx.fillRect(0, 0, W, H);
+    let lastTs = performance.now();
+    function loop(now) {
+      if (!alive) return;
+      const dt = Math.min(0.05, (now - lastTs) / 1000);
+      lastTs = now;
 
-    if (fever) {
-      ctx.fillStyle = 'rgba(253, 224, 71, 0.16)';
-      ctx.beginPath(); ctx.moveTo(W / 2 - 30, 0); ctx.lineTo(W / 2 + 30, 0); ctx.lineTo(W / 2 + 110, 146); ctx.lineTo(W / 2 - 110, 146); ctx.fill();
-    }
+      timeLeft -= dt;
+      if (timeLeft <= 0) {
+        finishGame(false);
+        return;
+      }
+      timeEl.textContent = `${Math.max(0, timeLeft).toFixed(1)}s`;
 
-    ctx.fillStyle = fever || !isChild ? '#fef3c7' : '#4a3728';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    const actionWord = poseIdx === -1 ? '哎呀同手同脚啦！稳住节奏！'
-      : fever ? `全场领操高燃时刻！连击 ×${combo}`
-      : (isChild ? '一二三四 · 二二三四 · 踩点伸展运动！' : '噼里啪啦 · 踩准鼓点盲打如飞！');
-    ctx.fillText(actionWord, W / 2, 22);
+      if (poseTimer > 0) {
+        poseTimer -= dt;
+        if (poseTimer <= 0 && !notes.some(n => n.holding)) poseIdx = 0;
+      }
+      laneFlash[0] = Math.max(0, laneFlash[0] - dt);
+      laneFlash[1] = Math.max(0, laneFlash[1] - dt);
 
-    // 绘制中央律动像素小人（5 套夸张体操/敲键动作帧）
-    const cx = W / 2, cy = 96;
-    ctx.save();
-    ctx.translate(cx, cy + (poseIdx > 0 ? -6 : 0));
-    if (poseIdx === -1) ctx.rotate(0.18);
-    // 阴影
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath(); ctx.ellipse(0, 34, 22, 6, 0, 0, Math.PI * 2); ctx.fill();
-    // 头与躯干
-    ctx.fillStyle = '#fde3c8';
-    ctx.beginPath(); ctx.arc(0, -22, 12, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#4a3728'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = poseIdx === -1 ? '#ef4444' : (fever ? '#f59e0b' : '#3b82f6');
-    ctx.fillRect(-11, -9, 22, 24);
-    ctx.strokeRect(-11, -9, 22, 24);
+      if (timeLeft > 1.3) {
+        spawnAcc -= dt;
+        if (spawnAcc <= 0) {
+          spawnAcc = spawnNextPattern();
+        }
+      }
 
-    // 手臂与腿部随节拍大开大合
-    ctx.strokeStyle = '#4a3728';
-    ctx.lineWidth = 4.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    if (poseIdx === 1) {
-      // 高举双臂伸展
-      ctx.moveTo(-11, -4); ctx.lineTo(-26, -26);
-      ctx.moveTo(11, -4); ctx.lineTo(26, -26);
-      ctx.moveTo(-6, 15); ctx.lineTo(-10, 32);
-      ctx.moveTo(6, 15); ctx.lineTo(10, 32);
-    } else if (poseIdx === 2) {
-      // 扩胸平展
-      ctx.moveTo(-11, -2); ctx.lineTo(-32, -2);
-      ctx.moveTo(11, -2); ctx.lineTo(32, -2);
-      ctx.moveTo(-6, 15); ctx.lineTo(-14, 32);
-      ctx.moveTo(6, 15); ctx.lineTo(14, 32);
-    } else if (poseIdx === 3) {
-      // 活力高踢腿
-      ctx.moveTo(-11, -4); ctx.lineTo(-24, 8);
-      ctx.moveTo(11, -4); ctx.lineTo(26, -18);
-      ctx.moveTo(-6, 15); ctx.lineTo(-8, 32);
-      ctx.moveTo(6, 15); ctx.lineTo(28, 12);
-    } else if (poseIdx === 4) {
-      // 大字腾跃
-      ctx.moveTo(-11, -4); ctx.lineTo(-28, -18);
-      ctx.moveTo(11, -4); ctx.lineTo(28, -18);
-      ctx.moveTo(-6, 15); ctx.lineTo(-20, 28);
-      ctx.moveTo(6, 15); ctx.lineTo(20, 28);
-    } else {
-      ctx.moveTo(-11, -4); ctx.lineTo(-18, 10);
-      ctx.moveTo(11, -4); ctx.lineTo(18, 10);
-      ctx.moveTo(-6, 15); ctx.lineTo(-8, 32);
-      ctx.moveTo(6, 15); ctx.lineTo(8, 32);
-    }
-    ctx.stroke();
-    ctx.restore();
+      // 推进音符下落 & 处理长按持续跳分
+      let anyHoldingNow = false;
+      for (const n of notes) {
+        n.y += cfg.speed * dt;
+        if (n.holding && !n.completed && !n.missed) {
+          anyHoldingNow = true;
+          const tailY = n.y - n.lenPx;
+          if (tailY >= HIT_Y + 14) {
+            // 按到尾端自动满额收尾，手感宽容爽快！
+            n.holding = false;
+            n.completed = true;
+            combo++;
+            if (combo > maxCombo) maxCombo = combo;
+            score += 32;
+            playBeatTone(784, 0.08);
+            pops.push({ x: laneXAtY(n.lane, HIT_Y - 26), y: HIT_Y - 30, txt: '满条收势 +32', col: '#fde047', life: 0.72 });
+            syncHud();
+          }
+        }
+        // 漏拍判定
+        if (!n.hitHead && !n.missed && n.y > HIT_Y + 34) {
+          n.missed = true;
+          combo = 0;
+          poseIdx = -1;
+          poseTimer = 0.32;
+          pops.push({ x: laneXAtY(n.lane, HIT_Y - 22), y: HIT_Y - 26, txt: '漏拍', col: '#fca5a5', life: 0.55 });
+          syncHud();
+        }
+      }
 
-    // 底部节拍轨道与左侧金色判定靶心
-    ctx.fillStyle = 'rgba(20, 16, 28, 0.84)';
-    ctx.fillRect(0, 146, W, H - 146);
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(24, TRACK_Y); ctx.lineTo(W - 12, TRACK_Y); ctx.stroke();
+      if (anyHoldingNow) {
+        holdTickAcc += dt;
+        if (holdTickAcc >= 0.14) {
+          holdTickAcc = 0;
+          score += 5;
+          syncHud();
+        }
+      } else {
+        holdTickAcc = 0;
+      }
 
-    // 判定靶心环
-    ctx.strokeStyle = '#fde047';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(TARGET_X, TRACK_Y, 18, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(253, 224, 71, 0.18)';
-    ctx.fill();
+      notes = notes.filter(n => !n.completed && !n.missed && (n.y - n.lenPx) < H + 30);
 
-    // 飞来的节拍音符圆环
-    for (const b of beats) {
-      ctx.save();
-      ctx.translate(b.x, TRACK_Y);
-      ctx.fillStyle = b.gold ? '#f59e0b' : '#38bdf8';
-      ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#fffdf9';
-      ctx.lineWidth = 2.2;
+      // ========== 1. 绘制上半屏：阳光操场 +「发展体育运动」红横幅 + 水泥领操台 ==========
+      ctx.fillStyle = isChild ? '#d8eef5' : '#25213b';
+      ctx.fillRect(0, 0, W, STAGE_BOTTOM);
+
+      if (isChild) {
+        // 绿茵操场与白色跑道线
+        ctx.fillStyle = '#bfd89b';
+        ctx.fillRect(0, 62, W, 68);
+        ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(20, 88); ctx.lineTo(W - 20, 88);
+        ctx.moveTo(78, 62); ctx.lineTo(36, 128);
+        ctx.moveTo(W - 78, 62); ctx.lineTo(W - 36, 128);
+        ctx.stroke();
+
+        // 铁杆与红色校运横幅「发展体育运动」
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(26, 6, 4, 120);
+        ctx.fillRect(W - 30, 6, 4, 120);
+
+        ctx.fillStyle = '#c83e32';
+        ctx.strokeStyle = '#4a251c';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.roundRect(34, 8, W - 68, 30, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('发 展 体 育 运 动', W / 2, 29);
+      } else {
+        // 成年霓虹聚光舞台
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.14)';
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 28, 0); ctx.lineTo(W / 2 + 28, 0);
+        ctx.lineTo(W / 2 + 110, STAGE_BOTTOM); ctx.lineTo(W / 2 - 110, STAGE_BOTTOM);
+        ctx.fill();
+      }
+
+      // 立体透视水泥领操台
+      ctx.fillStyle = '#b8b5ad';
+      ctx.strokeStyle = '#4a3d33';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(74, 108); ctx.lineTo(W - 74, 108);
+      ctx.lineTo(W - 52, 126); ctx.lineTo(52, 126);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#8d8980';
+      ctx.fillRect(52, 126, W - 104, 24);
+      ctx.strokeRect(52, 126, W - 104, 24);
+
+      // 站在领操台中央的真实主角形象
+      drawProtagonistOnPodium(now);
+
+      // 领操台下前景两侧跟随鼓点齐刷刷举手的同学剪影
+      const crowdBob = Math.sin(now / 190) * 3;
+      ctx.fillStyle = '#6f4e37';
+      for (const cxPos of [28, 66, 102, W - 102, W - 66, W - 28]) {
+        ctx.beginPath();
+        ctx.arc(cxPos, 138 + crowdBob, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(cxPos - 12, 146 + crowdBob, 24, 14);
+        // 举起的小手臂
+        ctx.lineWidth = 4.5;
+        ctx.strokeStyle = '#6f4e37';
+        ctx.beginPath();
+        ctx.moveTo(cxPos + 8, 148 + crowdBob);
+        ctx.lineTo(cxPos + 13, 128 + crowdBob);
+        ctx.stroke();
+      }
+
+      // ========== 2. 绘制下半屏：经典 2K 立体透视双轨音符跑道 ==========
+      ctx.fillStyle = '#f5ebd6';
+      ctx.fillRect(0, STAGE_BOTTOM, W, H - STAGE_BOTTOM);
+
+      // 透视跑道面板与木纹护栏
+      ctx.fillStyle = '#fffdf8';
+      ctx.strokeStyle = '#5c3d24';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 74, STAGE_BOTTOM);
+      ctx.lineTo(W / 2 + 74, STAGE_BOTTOM);
+      ctx.lineTo(W / 2 + 154, H);
+      ctx.lineTo(W / 2 - 154, H);
+      ctx.closePath();
+      ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(b.gold ? '重' : '拍', 0, 3.5);
-      ctx.restore();
-    }
 
-    pops = pops.filter(p => p.life > 0);
-    for (const p of pops) {
-      p.life -= dt * 1.4;
-      p.y -= dt * 20;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life);
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = p.col;
-      ctx.fillText(p.txt, p.x, p.y);
-      ctx.restore();
-    }
+      // 中轴分轨线
+      ctx.strokeStyle = '#d6c7b2';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, STAGE_BOTTOM);
+      ctx.lineTo(W / 2, H);
+      ctx.stroke();
 
+      ctx.fillStyle = '#6b5344';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('左轨', 14, STAGE_BOTTOM + 24);
+      ctx.textAlign = 'right';
+      ctx.fillText('右轨', W - 14, STAGE_BOTTOM + 24);
+
+      // 底部左右双判定圆靶台
+      for (const ln of [0, 1]) {
+        const hx = laneXAtY(ln, HIT_Y);
+        const isHeld = notes.some(n => n.lane === ln && n.holding);
+        ctx.save();
+        ctx.translate(hx, HIT_Y);
+        // 底座深棕垫
+        ctx.fillStyle = '#4a3222';
+        ctx.beginPath(); ctx.ellipse(0, 4, 31, 16, 0, 0, Math.PI * 2); ctx.fill();
+        // 靶面
+        ctx.fillStyle = (isHeld || laneFlash[ln] > 0) ? '#fde047' : '#f7efe0';
+        ctx.strokeStyle = '#4a3222';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.ellipse(0, 0, 29, 14.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+        if (isHeld) {
+          // 长按持续爆裂星芒特效！
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 2.4;
+          for (let k = 0; k < 8; k++) {
+            const a = (Math.PI * 2 * k) / 8 + now / 160;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * 20, Math.sin(a) * 10);
+            ctx.lineTo(Math.cos(a) * 38, Math.sin(a) * 20);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // 绘制下落中的单点圆饼音符与发光长按滑条音符
+      for (const n of notes) {
+        if (n.completed || n.missed) continue;
+        const headY = n.holding ? HIT_Y : n.y;
+        const scaleH = 0.62 + 0.38 * Math.max(0, (headY - STAGE_BOTTOM) / (HIT_Y - STAGE_BOTTOM));
+        const headX = laneXAtY(n.lane, headY);
+
+        if (n.kind === 'hold') {
+          const tailY = Math.max(STAGE_BOTTOM, n.y - n.lenPx);
+          const tailX = laneXAtY(n.lane, tailY);
+          const scaleT = 0.62 + 0.38 * Math.max(0, (tailY - STAGE_BOTTOM) / (HIT_Y - STAGE_BOTTOM));
+          const wHead = 20 * scaleH;
+          const wTail = 20 * scaleT;
+
+          // 琥珀流光长按光带主体
+          const ribGrad = ctx.createLinearGradient(0, tailY, 0, headY);
+          ribGrad.addColorStop(0, 'rgba(251, 191, 36, 0.78)');
+          ribGrad.addColorStop(1, 'rgba(245, 158, 11, 0.96)');
+          ctx.fillStyle = ribGrad;
+          ctx.strokeStyle = '#92400e';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(tailX - wTail, tailY);
+          ctx.lineTo(tailX + wTail, tailY);
+          ctx.lineTo(headX + wHead, headY);
+          ctx.lineTo(headX - wHead, headY);
+          ctx.closePath();
+          ctx.fill(); ctx.stroke();
+
+          // 中芯高光条
+          ctx.strokeStyle = '#fef9c3';
+          ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(headX, headY); ctx.stroke();
+
+          // 尾端松手节点圆环 + 提示小签
+          ctx.fillStyle = '#fde047';
+          ctx.strokeStyle = '#78350f';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(tailX, tailY, wTail, wTail * 0.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          if (tailY > STAGE_BOTTOM + 12 && tailY < HIT_Y - 22) {
+            ctx.fillStyle = '#78350f';
+            ctx.font = 'bold 9.5px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('尾端松手', tailX, tailY - 9);
+          }
+        }
+
+        // 头部圆盘音符
+        const rDisc = 21 * scaleH;
+        ctx.fillStyle = n.gold ? '#f59e0b' : '#fffdf5';
+        ctx.strokeStyle = '#4a3222';
+        ctx.lineWidth = 2.1;
+        ctx.beginPath();
+        ctx.ellipse(headX, headY, rDisc, rDisc * 0.52, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = n.gold ? '#fef08a' : '#e7dcc8';
+        ctx.beginPath();
+        ctx.ellipse(headX, headY - 1.5, rDisc * 0.55, rDisc * 0.26, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 命中飘字反馈
+      pops = pops.filter(p => p.life > 0);
+      for (const p of pops) {
+        p.life -= dt * 1.35;
+        p.y -= dt * 22;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, p.life * 1.5);
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#3b2312';
+        ctx.strokeText(p.txt, p.x, p.y);
+        ctx.fillStyle = p.col;
+        ctx.fillText(p.txt, p.x, p.y);
+        ctx.restore();
+      }
+
+      rafId = requestAnimationFrame(loop);
+    }
     rafId = requestAnimationFrame(loop);
   }
-  rafId = requestAnimationFrame(loop);
+
+  mountWithDiff('normal');
 }
 
 // ============================================================================
@@ -387,7 +958,7 @@ export function openSpotBugGame(container, state, opts = {}, onFinish) {
         note: isExam ? '顺手检查出一道符号笔误（学识 +1，心态 +2）' : '核对小票追回多算零头（现金 +¥80）'
       });
     }
-    const score = found * 85 + (found === 3 ? timeLeft * 4 : 0) - mistakes * 20;
+    const score = Math.round(found * 85 + (found === 3 ? timeLeft * 4 : 0) - mistakes * 20);
     const grade = (found === 3 && mistakes <= 1 && score >= 245) ? 'S'
       : found >= 2 ? 'A'
       : found >= 1 ? 'B' : 'C';
@@ -680,7 +1251,7 @@ export function openSpotDiffGame(container, state, opts = {}, onFinish) {
         note: '静心翻完老相册找回童年细节（心态 +3，学识 +1）'
       });
     }
-    const score = foundCnt * 48 + (foundCnt === 5 ? timeLeft * 4 : 0);
+    const score = Math.round(foundCnt * 48 + (foundCnt === 5 ? timeLeft * 4 : 0));
     const grade = (foundCnt === 5 && score >= 255) ? 'S'
       : foundCnt >= 4 ? 'A'
       : foundCnt >= 2 ? 'B' : 'C';

@@ -2,24 +2,29 @@
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS,
   ERA_TIMELINE, SUB_STAGES, PROMO_REQ, LEVEL_MULT, APPROVED_SYSTEM_ANCHORS
-} from './data.js?v=s40';
+} from './data.js?v=s51';
 import {
   HEX_NODES, HEX_CARD_MAP, hasHex, getHexInstance, getBondTier
-} from './hextech.js?v=s40';
+} from './hextech.js?v=s51';
 import {
   SEASONAL_MAP, detectCombos, rollSeasonalOfferIds
-} from './combos.js?v=s40';
+} from './combos.js?v=s51';
 import {
   getMilestoneEventForTurn, rollMidTurnRandomEvent
-} from './events.js?v=s40';
+} from './events.js?v=s51';
 import {
   advancePetYear
-} from './lifeFeatures.js?v=s40';
+} from './lifeFeatures.js?v=s51';
 import {
   ensureDreamState, getDreamScheduleActions, executeDreamAction,
   rollDreamLifecycleEvent, applyDreamAnnualPassives, syncLegacyDreamFields
-} from './dreams.js?v=s40';
-import { rollStageArcadeMoment } from './arcadeGames.js?v=s40';
+} from './dreams.js?v=s51';
+import { rollStageArcadeMoment } from './arcadeGames.js?v=s51';
+import {
+  SUBJECT_META, ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
+  pickRecommendedSubject, applySubjectStudyStep, simulateSubjectStudyStep,
+  makeStudentSnapshotFromState, advanceChildSubTurnCursor, applyParentTutorToChild
+} from './examSystem.js?v=s51';
 
 export function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -58,6 +63,7 @@ export function ensureSprint1State(s) {
   if (!Array.isArray(s.seenArcadeMoments)) s.seenArcadeMoments = [];
   if (typeof s.arcadePlayedThisTurn !== 'boolean') s.arcadePlayedThisTurn = false;
   ensureDreamState(s);
+  ensureExamState(s);
   return s;
 }
 
@@ -123,6 +129,20 @@ export function getMacroParams(age) {
 export function createInitialState(originId, talentId, gender = 'male') {
   const origin = ORIGINS.find(o => o.id === originId) || ORIGINS[1];
   const talent = origin.talents.find(t => t.id === talentId) || origin.talents[0];
+  const ini = origin.initStats || { knowledge: 20, numLogic: 20, expr: 20, selfCare: 20, mood: 70, health: 80 };
+  const initKnow = clamp(
+    ini.knowledge
+    + (talent.id === 't_book' ? 4 : 0)
+    + (talent.id === 't_tutor' ? 2 : 0)
+    + (talent.id === 't_shelf' ? 3 : 0)
+  );
+  const initNum = clamp(
+    ini.numLogic
+    + (talent.id === 't_grit' ? 3 : 0)
+    + (talent.id === 't_mathfam' ? 3 : 0)
+    + (talent.id === 't_cashflow' ? 4 : 0)
+    + (talent.id === 't_rebel' ? 3 : 0)
+  );
   const s = {
     gender,
     age: 6,
@@ -132,25 +152,27 @@ export function createInitialState(originId, talentId, gender = 'male') {
     talent,
     cityTier: origin.cityTier,
     // 五维核心（全面整数化）
-    cash: origin.pocketMoney * 6 + (talent.id === 't_saver' ? 500 : 0),
+    cash: origin.pocketMoney * 6 + (talent.id === 't_saver' ? 500 : 0) + (talent.id === 't_shopkid' ? 300 : 0),
     debt: 0,
     goldGrams: 0,
     house: null, // { id, tier, name, value, basePrice, loan, pmtMo, grid, buffActive, layout }
     hasCar: false,
-    // 能力与保底里程碑
+    // 五项核心可见能力（学识 / 数理 / 专业 / 表达 / 自理理财）与保底里程碑
     stats: {
-      knowledge: clamp(20 + origin.offsets.knowledge + (talent.id === 't_book' ? 6 : 0) + (talent.id === 't_tutor' ? 8 : 0)),
+      knowledge: initKnow,
+      numLogic: initNum,
       pro: 0,
-      expr: clamp(20 + origin.offsets.expr + (talent.id === 't_social' || talent.id === 't_vision' ? 6 : 0)),
-      selfCare: clamp(20 + origin.offsets.selfCare + (talent.id === 't_saver' ? 6 : 0) + (talent.id === 't_biz' || talent.id === 't_rebel' ? 10 : 0)),
-      health: clamp(80 + origin.offsets.health + (talent.id === 't_health' ? 6 : 0)),
-      mood: clamp(70 + origin.offsets.mood + (talent.id === 't_art' ? 4 : 0) + (talent.id === 't_koi2' ? 8 : 0)),
+      expr: clamp(ini.expr + (talent.id === 't_social' || talent.id === 't_vision' || talent.id === 't_street' ? 6 : 0) + (talent.id === 't_chalk' ? 5 : 0)),
+      selfCare: clamp(ini.selfCare + (talent.id === 't_early' ? 5 : 0) + (talent.id === 't_saver' || talent.id === 't_shopkid' ? 6 : 0) + (talent.id === 't_biz' || talent.id === 't_rebel' ? 10 : 0)),
+      health: clamp(ini.health + (talent.id === 't_health' ? 6 : 0)),
+      mood: clamp(ini.mood + (talent.id === 't_art' || talent.id === 't_chalk' ? 4 : 0) + (talent.id === 't_koi2' ? 8 : 0)),
       fatigue: 0
     },
-    halfProgress: { knowledge: 0, pro: 0, expr: 0, selfCare: 0, dream: 0 },
-    floors: { knowledge: 0, pro: 0, expr: 0, selfCare: 0 },
-    unusedYears: { knowledge: 0, pro: 0, expr: 0, selfCare: 0 },
-    usedThisYear: { knowledge: false, pro: false, expr: false, selfCare: false },
+    statsRaw: { knowledge: initKnow, numLogic: initNum },
+    halfProgress: { knowledge: 0, numLogic: 0, pro: 0, expr: 0, selfCare: 0, dream: 0 },
+    floors: { knowledge: 0, numLogic: 0, pro: 0, expr: 0, selfCare: 0 },
+    unusedYears: { knowledge: 0, numLogic: 0, pro: 0, expr: 0, selfCare: 0 },
+    usedThisYear: { knowledge: false, numLogic: false, pro: false, expr: false, selfCare: false },
     // 教育与职业
     gaokaoDone: false,
     university: null,
@@ -167,12 +189,12 @@ export function createInitialState(originId, talentId, gender = 'male') {
     projectCount: 0,
     // 梦想
     activeDreams: [], // 18岁后最多聚焦 2 条
-    dreamSkill: talent.id === 't_dream' ? 8 : (talent.id === 't_art' ? 12 : 0),
+    dreamSkill: talent.id === 't_dream' ? 8 : (talent.id === 't_art' ? 12 : (origin.id === 'middle' ? 6 : 0)),
     dreamCompleted: false,
     // 关系网
     relations: {
       parents: { name: '父母', intimacy: 65, missedTurns: 0, helpedThisYear: false },
-      friend: { name: '同桌小周', intimacy: 35 + (talent.id === 't_social' ? 8 : 0), missedTurns: 0, helpedThisYear: false },
+      friend: { name: '同桌小周', intimacy: 35 + (talent.id === 't_social' || talent.id === 't_street' ? 8 : 0), missedTurns: 0, helpedThisYear: false },
       partner: null // { name, bgId, incomeMult, intimacy, married, missedTurns }
     },
     child: null, // { bornAge, tierCost, study, mood, bond }
@@ -267,8 +289,11 @@ export function getCurrentMonthlySalary(state) {
   const tenureBonus = Math.min(0.21, effectiveYears * 0.03);
   let mult = 1.0;
   if (state.track.id === 'burst' && era.name === '新经济红利期') mult += 0.10;
+  if (state.track.id === 'longtail' && state.origin.id === 'welloff') mult += 0.08;
+  if ((state.track.id === 'burst' || state.track.id === 'steady') && (state.stats.numLogic || 0) >= 75) mult += 0.05;
+  if (state.stats.knowledge >= 75) mult += 0.04;
   if (state.university.abroad && era.name === '房产黄金周期') mult -= 0.08; // 海归贬值信号
-  if (state.aiSkillLearned && state.age >= 43) mult += 0.10;
+  if (state.aiSkillLearned && state.age >= 43) mult += ((state.stats.numLogic || 0) >= 70 ? 0.14 : 0.10);
   // 海克斯乘区严格走加法汇总，防止连乘通胀
   if (hasHex(state, 'hx_shop_3')) mult += 0.22;
   if (hasHex(state, 'hx_ai_pioneer')) mult += 0.15;
@@ -363,11 +388,11 @@ export function trainStat(state, key, extra = 0, opts = {}) {
 }
 
 export function updateMilestones(state) {
-  for (const k of ['knowledge', 'pro', 'expr', 'selfCare']) {
-    const v = state.stats[k];
-    if (v >= 85) state.floors[k] = Math.max(state.floors[k], 65);
-    else if (v >= 60) state.floors[k] = Math.max(state.floors[k], 45);
-    else if (v >= 30) state.floors[k] = Math.max(state.floors[k], 20);
+  for (const k of ['knowledge', 'numLogic', 'pro', 'expr', 'selfCare']) {
+    const v = state.stats[k] || 0;
+    if (v >= 85) state.floors[k] = Math.max(state.floors[k] || 0, 65);
+    else if (v >= 60) state.floors[k] = Math.max(state.floors[k] || 0, 45);
+    else if (v >= 30) state.floors[k] = Math.max(state.floors[k] || 0, 20);
   }
 }
 
@@ -405,28 +430,47 @@ export function getAvailableActions(state) {
   const cashMult = 1
     + (hasHex(state, 'hx_shop_1') && isChild ? 0.5 : 0)
     + (hasHex(state, 'hx_shop_2') ? 0.6 : 0)
-    + (hasHex(state, 'hx_tuck_king') && isChild ? 0.5 : 0);
+    + (hasHex(state, 'hx_tuck_king') && isChild ? 0.5 : 0)
+    + (state.talent?.id === 't_cashflow' ? 0.15 : 0);
 
-  // 1. 成长与学习（补齐 19–21 岁大学校园生活，消灭空窗断层！）
+  // 1. 成长与学习（学生期接入「学识+数理」直白选科学习与当期教材深度上限 D！）
   if (isChild) {
+    const selSubj = state.selectedSubject || pickRecommendedSubject(state);
+    const sMeta = SUBJECT_META[selSubj] || SUBJECT_META.chn;
+    const snap = makeStudentSnapshotFromState(state);
+    const simFree = simulateSubjectStudyStep(snap, selSubj, { solo: true });
+    const axisTag = sMeta.axis === 'knowledge'
+      ? `学识 +${Math.round(simFree.dLit)}`
+      : sMeta.axis === 'numLogic'
+        ? `数理 +${Math.round(simFree.dNum)}`
+        : `学识/数理 +1`;
+    const freeChips = simFree.capped
+      ? [{ t: `${sMeta.label}本册已吃透(${simFree.D})`, k: 'gold' }, { t: '可点上方切换科目', k: 'neu' }]
+      : [{ t: axisTag, k: 'pos' }, { t: `${sMeta.label} +${Math.round(simFree.dS)}`, k: 'gold' }, { t: '心态 -1', k: 'neg' }];
     actions.push({
-      id: 'study_self', cat: '1.成长与学习', name: '课业自习', costCash: 0,
-      chips: [statChip(state, 'knowledge', '学识', 0, true), { t: '心态 -1', k: 'neg' }, { t: '疲劳 +1', k: 'neu' }]
+      id: 'study_self', cat: '1.成长与学习', name: `自习 · ${sMeta.short}`, costCash: 0,
+      chips: freeChips
     });
     const canTutor = state.tutoredThisYear < state.origin.eduLimit;
-    const tutorFee = state.talent.id === 't_tutor' ? 250 : 500;
+    const halfTutor = state.talent.id === 't_tutor' || state.origin.id === 'teacher';
+    const tutorFee = halfTutor ? 60 : 120;
     const tutorMood = state.talent.id === 't_book' ? 1 : 2;
-    const tutorChips = state.stats.knowledge < 85
-      ? [statChip(state, 'knowledge', '学识', 1), { t: '名师提速', k: 'gold' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
-      : [{ t: '已达高阶', k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }];
+    const simPaid = simulateSubjectStudyStep(snap, selSubj, { paid: true });
+    const eduLimTxt = state.origin.eduLimit >= 99 ? '不限' : `${state.tutoredThisYear}/${state.origin.eduLimit}`;
+    const tutorChips = simPaid.capped
+      ? [{ t: `${sMeta.label}本册已吃透`, k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
+      : (state.subjects[selSubj] < 85
+          ? [{ t: `${sMeta.label} +${simPaid.dS.toFixed(1)}`, k: 'gold' }, { t: '专项提速', k: 'pos' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
+          : [{ t: '≥85无付费加值', k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }]);
     actions.push({
-      id: 'study_tutor', cat: '1.成长与学习', name: `付费补习 (${state.tutoredThisYear}/${state.origin.eduLimit})`, costCash: tutorFee, disabled: !canTutor,
+      id: 'study_tutor', cat: '1.成长与学习', name: `专项补习·${sMeta.label} (${eduLimTxt})`, costCash: tutorFee, disabled: !canTutor,
       chips: tutorChips
     });
     if (state.age >= 15) {
+      const simSp = simulateSubjectStudyStep(snap, selSubj, { solo: true, sprint: true });
       actions.push({
-        id: 'gaokao_sprint', cat: '1.成长与学习', name: '考前冲刺', costCash: 0,
-        chips: [statChip(state, 'knowledge', '学识', 1, true), { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
+        id: 'gaokao_sprint', cat: '1.成长与学习', name: `考前刷卷·${sMeta.label}`, costCash: 0,
+        chips: [{ t: `${sMeta.label} +${Math.round(simSp.dS)}`, k: 'pos' }, { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
       });
     }
   } else if (isUni) {
@@ -506,15 +550,18 @@ export function getAvailableActions(state) {
     });
   }
 
-  // 4. 家庭与育儿
+  // 4. 家庭与育儿（支持切换辅导文科 / 辅导理科 / 全科，受父母自身学识与数理水平加成！）
   if (state.child && state.age - state.child.bornAge <= 18) {
+    const kf = state.tutorKidFocus || 'balanced';
+    const kfLb = kf === 'lit' ? '补文科' : kf === 'num' ? '补理科' : '全科';
+    const pBoost = (kf === 'lit' && state.stats.knowledge >= 70) || (kf === 'num' && state.stats.numLogic >= 70);
     actions.push({
-      id: 'tutor_kid', cat: '4.家庭与育儿', name: '辅导孩子作业', costCash: 0,
-      chips: [{ t: '娃学业 +4', k: 'pos' }, { t: '心态 -2', k: 'neg' }, { t: '疲劳 +2', k: 'neu' }]
+      id: 'tutor_kid', cat: '4.家庭与育儿', name: `辅导孩子功课 (${kfLb})`, costCash: 0,
+      chips: [{ t: pBoost ? '高学历点拨 ×1.35' : '娃分科提升', k: pBoost ? 'gold' : 'pos' }, { t: '心态 -2', k: 'neg' }, { t: '疲劳 +2', k: 'neu' }]
     });
     actions.push({
       id: 'play_kid', cat: '4.家庭与育儿', name: '高质量陪娃', costCash: 100,
-      chips: [{ t: '亲子羁绊 +4', k: 'pos' }, { t: '心态 +2', k: 'pos' }]
+      chips: [{ t: '亲子羁绊 +4', k: 'pos' }, { t: '娃心态 +4', k: 'pos' }]
     });
   }
 
@@ -754,32 +801,32 @@ export function executeTurn(state, draftIds) {
 
     switch (id) {
       case 'study_self': {
-        const g = trainStat(state, 'knowledge', 0, { solo: true, doubleFlow: isFlowDup });
+        const res = applySubjectStudyStep(state, state.selectedSubject, { solo: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
         state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
-        beatText = `学识 +${g}${isFlowDup ? ' (心流×2)' : ''}`;
-        summary.push(`课业自习：${beatText}`);
+        beatText = res.capped ? `${res.meta.label}本册已吃透` : `${res.meta.label} +${Math.round(res.dS)}${isFlowDup ? ' (心流)' : ''}`;
+        summary.push(`自习·${res.meta.label}：${beatText}`);
         break;
       }
       case 'study_tutor': {
         if (state.tutoredThisYear < state.origin.eduLimit) {
-          const g = trainStat(state, 'knowledge', 1, { doubleFlow: isFlowDup });
+          const res = applySubjectStudyStep(state, state.selectedSubject, { paid: true, doubleFlow: isFlowDup });
           state.tutoredThisYear++;
           if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - (state.talent.id === 't_book' ? 1 : 2));
           state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
-          beatText = `学识 +${g}`;
-          summary.push(`付费补习：学识 +${g}`);
+          beatText = res.capped ? `${res.meta.label}已满` : `${res.meta.label} +${res.dS.toFixed(1)}`;
+          summary.push(`专项补习·${res.meta.label}：${beatText}`);
         }
         break;
       }
       case 'gaokao_sprint': {
-        const g = trainStat(state, 'knowledge', 1, { solo: true, doubleFlow: isFlowDup });
+        const res = applySubjectStudyStep(state, state.selectedSubject, { solo: true, sprint: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 2);
         state.stats.fatigue = clamp(state.stats.fatigue + 2 + (isFlowDup ? 2 : 0));
         if (!state.experiences.includes('exp_gaokao_sprint')) state.experiences.push('exp_gaokao_sprint');
-        beatText = `学识 +${g} · 冲刺`;
+        beatText = `${res.meta.label} +${Math.round(res.dS)} · 冲刺`;
         beatKind = 'gold';
-        summary.push(`考前冲刺：学识 +${g}，留存冲刺经历`);
+        summary.push(`考前刷卷·${res.meta.label}：专项 +${res.dS.toFixed(1)}，留存冲刺经历`);
         break;
       }
       case 'uni_study': {
@@ -938,11 +985,11 @@ export function executeTurn(state, draftIds) {
       }
       case 'tutor_kid': {
         if (state.child) {
-          state.child.study = clamp(state.child.study + (isFlowDup ? 8 : 4));
+          const kres = applyParentTutorToChild(state, state.tutorKidFocus, isFlowDup);
           if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 2);
           state.stats.fatigue = clamp(state.stats.fatigue + 2 + (isFlowDup ? 2 : 0));
-          beatText = `娃学业 +${isFlowDup ? 8 : 4}`;
-          summary.push('辅导作业：孩子学业提升');
+          beatText = `${kres?.tag || '辅导功课'} · 稳步提分`;
+          summary.push(`辅导孩子功课（${kres?.tag || '全科'}）：孩子分科熟练度提升`);
         }
         break;
       }
@@ -1043,8 +1090,22 @@ export function executeTurn(state, draftIds) {
   for (const cb of combosTriggered) {
     state.comboCountTotal++;
     const b = cb.bonus;
+    const capD = state.age <= 18 ? getStageTextbookCap(state.age, state.subTurn) : 100;
     if (b.cash) state.cash += b.cash * cbMult;
-    if (b.knowledge) state.stats.knowledge = clamp(state.stats.knowledge + b.knowledge * cbMult);
+    if (b.knowledge) {
+      if (state.age <= 18) {
+        const sel = state.selectedSubject || 'chn';
+        if (sel === 'math' || sel === 'sci') {
+          state.statsRaw.numLogic = Math.min(capD, state.statsRaw.numLogic + b.knowledge * cbMult);
+        } else {
+          state.statsRaw.knowledge = Math.min(capD, state.statsRaw.knowledge + b.knowledge * cbMult);
+        }
+        state.subjects[sel] = Math.min(capD, (state.subjects[sel] || 20) + 1.5 * cbMult);
+        syncVisibleAcademicStats(state);
+      } else {
+        state.stats.knowledge = clamp(state.stats.knowledge + b.knowledge * cbMult);
+      }
+    }
     if (b.pro) state.stats.pro = clamp(state.stats.pro + b.pro * cbMult);
     if (b.expr) state.stats.expr = clamp(state.stats.expr + b.expr * cbMult);
     if (b.selfCare) state.stats.selfCare = clamp(state.stats.selfCare + b.selfCare * cbMult);
@@ -1067,7 +1128,7 @@ export function executeTurn(state, draftIds) {
     if (b.parentInt) state.relations.parents.intimacy = clamp(state.relations.parents.intimacy + b.parentInt * cbMult);
     if (b.partnerInt && state.relations.partner) state.relations.partner.intimacy = clamp(state.relations.partner.intimacy + b.partnerInt * cbMult);
     if (b.kidBond && state.child) state.child.bond = clamp(state.child.bond + b.kidBond * cbMult);
-    if (b.kidStudy && state.child) state.child.study = clamp(state.child.study + b.kidStudy * cbMult);
+    if (b.kidStudy && state.child) applyParentTutorToChild(state, state.tutorKidFocus, false);
     if (b.kidMood && state.child) state.child.mood = clamp(state.child.mood + b.kidMood * cbMult);
     if (b.project) state.projectCount += b.project * cbMult;
     if (b.elderCircle) {
@@ -1075,8 +1136,15 @@ export function executeTurn(state, draftIds) {
       if (state.elderCircleProgress >= 3) state.elderCircle = true;
     }
     if (b.mainStudy) {
-      const mk = state.age <= 18 ? 'knowledge' : 'pro';
-      state.stats[mk] = clamp(state.stats[mk] + b.mainStudy * cbMult);
+      if (state.age <= 18) {
+        const sel = state.selectedSubject || 'chn';
+        state.statsRaw.knowledge = Math.min(capD, state.statsRaw.knowledge + 1 * cbMult);
+        state.statsRaw.numLogic = Math.min(capD, state.statsRaw.numLogic + 1 * cbMult);
+        state.subjects[sel] = Math.min(capD, (state.subjects[sel] || 20) + 2.0 * cbMult);
+        syncVisibleAcademicStats(state);
+      } else {
+        state.stats.pro = clamp(state.stats.pro + b.mainStudy * cbMult);
+      }
     }
     summary.push(`【连携 · ${cb.name}】${cbMult > 1 ? '×2 ' : ''}${cb.desc}`);
 
@@ -1204,10 +1272,27 @@ export function executeTurn(state, draftIds) {
     }
     if (!accompaniedParents) {
       state.relations.parents.missedTurns++;
-      if (state.relations.parents.missedTurns >= 3) {
+      const parentNeed = (state.origin.id === 'merchant' && state.age <= 18) ? 2 : 3;
+      if (state.relations.parents.missedTurns >= parentNeed) {
         state.relations.parents.intimacy = clamp(state.relations.parents.intimacy - 2);
         state.relations.parents.missedTurns = 0;
       }
+    }
+  }
+
+  // 推进子女代际考学 38 季游标（复用同一套分科区间算分引擎）
+  const mpForChild = getMacroParams(state.age);
+  const childExamEvents = advanceChildSubTurnCursor(state, state.subTurn, mpForChild.subTurns);
+  for (const cev of childExamEvents) {
+    summary.push(cev.line);
+    if (cev.kind === 'gk') {
+      state.albumPhotos.push({
+        age: state.age,
+        stamp: getDateStamp(state.age, state.subTurn),
+        title: `孩子高考 ${cev.rep.finalScore}分 · ${cev.rep.admitted}`,
+        stageIdx: getSubStageIndex(state.age),
+        bg: 'adult'
+      });
     }
   }
 
@@ -1526,14 +1611,22 @@ export function runYearEnd(state) {
     lines.push('【社团人气王】全员亲密自动 +2');
   }
 
-  for (const k of ['knowledge', 'pro', 'expr', 'selfCare']) {
-    if (!state.usedThisYear[k]) {
-      state.unusedYears[k]++;
-      if (state.unusedYears[k] >= 2 && state.stats[k] > state.floors[k]) {
-        state.stats[k]--;
+  // 学生阶段不扣累计学业记录；19 岁成年后才开启生疏保护规则
+  if (state.age >= 19) {
+    for (const k of ['knowledge', 'numLogic', 'pro', 'expr', 'selfCare']) {
+      if (!state.usedThisYear[k]) {
+        state.unusedYears[k] = (state.unusedYears[k] || 0) + 1;
+        if (state.unusedYears[k] >= 2 && state.stats[k] > (state.floors[k] || 0)) {
+          state.stats[k]--;
+          if (k === 'knowledge' || k === 'numLogic') state.statsRaw[k] = state.stats[k];
+        }
       }
+      state.usedThisYear[k] = false;
     }
-    state.usedThisYear[k] = false;
+  } else {
+    for (const k of ['knowledge', 'numLogic', 'pro', 'expr', 'selfCare']) {
+      state.usedThisYear[k] = false;
+    }
   }
 
   // 5. 人生树分叉自动存档（18 / 30 / 50 岁）

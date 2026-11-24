@@ -2,8 +2,8 @@
 // 全部采用原生 Canvas / 轻像素手绘矢量渲染，0 外部图片体积，支持移动端单指按住/划屏/连点与一键保底结算。
 // 严格遵循纯中文零系统表情符号规范。
 
-import { pxIcon } from './icons.js?v=s40';
-import { triggerHaptic } from './vfxAndUi.js?v=s40';
+import { pxIcon } from './icons.js?v=s51';
+import { triggerHaptic } from './vfxAndUi.js?v=s51';
 
 export function rollStageArcadeMoment(state, draftIds = []) {
   if (!Array.isArray(state.seenArcadeMoments)) state.seenArcadeMoments = [];
@@ -611,7 +611,8 @@ export function openNostalgiaLinkGame(container, state, opts = {}, onFinish) {
         note: '自动整理完货架零食（心态 +2，学识 +1）'
       });
     }
-    if (pairsLeft === 0) score += timeLeft * 6;
+    if (pairsLeft === 0) score += Math.round(timeLeft * 6);
+    score = Math.round(score);
     const grade = (pairsLeft === 0 && score >= 240) ? 'S'
       : (pairsLeft <= 2 || score >= 170) ? 'A'
       : score >= 90 ? 'B' : 'C';
@@ -811,16 +812,17 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
         note: '稳健跑完全程，抢到热乎糖醋排骨（健康 +1，心态 +2）'
       });
     }
-    const grade = score >= 235 ? 'S' : score >= 160 ? 'A' : score >= 90 ? 'B' : 'C';
+    const finalScore = Math.round(score);
+    const grade = finalScore >= 235 ? 'S' : finalScore >= 160 ? 'A' : finalScore >= 90 ? 'B' : 'C';
     onFinish({
       grade,
-      score,
+      score: finalScore,
       health: grade === 'S' ? 2 : 1,
       mood: grade === 'S' ? 4 : grade === 'A' ? 3 : 2,
       cash: !isHurdleClimax && grade === 'S' ? 40 : 0,
       note: isHurdleClimax
-        ? `跨栏决赛完美过栏 ${hurdlesCleared} 架，冲线得分 ${score}（${grade} 级）！`
-        : `一路狂奔冲进食堂窗口，得分 ${score}（${grade} 级）！`
+        ? `跨栏决赛完美过栏 ${hurdlesCleared} 架，冲线得分 ${finalScore}（${grade} 级）！`
+        : `一路狂奔冲进食堂窗口，得分 ${finalScore}（${grade} 级）！`
     });
   }
 
@@ -830,7 +832,7 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
     if (!alive) return;
     if (timeLeft <= 4.0) {
       score += 8;
-      scEl.textContent = String(score);
+      scEl.textContent = String(Math.round(score));
       pops.push({ x: laneX(lane, H - 40), y: H - 68, txt: '冲刺 +8', col: '#fde047', life: 0.5 });
     }
     if (jumpT <= 0) {

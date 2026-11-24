@@ -2,13 +2,17 @@
 // 红线声明：本文件全部事件为结构化机制卡壳（audit_stage: 'MECHANIC_SHELL'），严格保留 review_status 硬门禁，
 // 供第 4 步批量替换为人工审定文学正文；严禁包含任何 AI 自动生成的长段剧情对话。
 
-import { SUB_STAGES, DREAMS } from './data.js?v=s40';
-import { hasHex, getBondTier } from './hextech.js?v=s40';
-import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s40';
+import { SUB_STAGES, DREAMS } from './data.js?v=s51';
+import { hasHex, getBondTier } from './hextech.js?v=s51';
+import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s51';
 import {
   ensureDreamState, DREAM_CATALOG, addKeepsakeWithStory,
   settleDreamQualifier, settleDreamClimax, applyGracefulPivot, syncLegacyDreamFields
-} from './dreams.js?v=s40';
+} from './dreams.js?v=s51';
+import {
+  ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
+  rollOrGetExamResult, getStudentExamPreview
+} from './examSystem.js?v=s51';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -52,10 +56,10 @@ export function getMilestoneEventForTurn(state) {
     {
       id: 'ms_exam_7', age: 7, subTurn: 3, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
       title: '第一次期末发榜与红花奖状',
-      summary: `【7 岁节点 · 当前学识 ${state.stats.knowledge}】迎来人生第一张正式成绩单（学识 ≥34 可评三好学生赢奖金）。`,
+      summary: `【7 岁节点 · 当前学识 ${state.stats.knowledge} / 数理 ${state.stats.numLogic || 20}】迎来人生第一张正式成绩单（学识或数理 ≥26 可评三好学生赢奖金）。`,
       choices: [
-        { label: '自信领回三好学生奖状贴满墙（需学识≥34，奖金 +¥150，心态 +5，父母亲密 +4）', reqAny: { knowledge: 34 }, effects: { cash: 150, mood: 5, parentInt: 4, exp: 'exp_award_7', photo: '7岁第一张奖状' } },
-        { label: '老实拿卷子回家跟爸妈复盘错题（学识 +2，父母亲密 +2，心态 -1）', effects: { knowledge: 2, parentInt: 2, mood: -1, statusBuff: { id: 'bf_hot_study', name: '手感火热', turns: 2, type: 'pos', desc: '学习类行动额外+1' } } },
+        { label: '自信领回三好学生奖状贴满墙（需学识或数理≥26，奖金 +¥150，心态 +5）', reqAny: { knowledge: 26, numLogic: 26 }, effects: { cash: 150, mood: 5, parentInt: 4, exp: 'exp_award_7', photo: '7岁第一张奖状' } },
+        { label: '拿卷子回家认真订正语文与算术错题（语文/数学扎实度提升，父母亲密 +2）', effects: { subjBoost: { chn: 3, math: 3 }, parentInt: 2, mood: -1, statusBuff: { id: 'bf_hot_study', name: '手感火热', turns: 2, type: 'pos', desc: '分科吸收效率提升' } } },
         { label: '把卷子悄悄塞进枕头下先玩两天（心态 +3，自理 -1）', effects: { mood: 3, selfCare: -1 } }
       ]
     },
@@ -71,9 +75,9 @@ export function getMilestoneEventForTurn(state) {
     {
       id: 'ms_monitor_9', age: 9, subTurn: 2, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
       title: '学校春游与第一次班干部竞选',
-      summary: `【9 岁节点 · 当前表达 ${state.stats.expr}】班里公开竞选班长与文艺委员，检验早期表达与人缘。`,
+      summary: `【9 岁节点 · 当前表达 ${state.stats.expr}】班里公开竞选班长与文艺委员，纯检验表达与人缘（表达 ≥28 可当选）。`,
       choices: [
-        { label: '上台大方演讲竞选班长（需表达≥32，当选班长：表达 +3，心态 +4，获得增益状态）', reqAny: { expr: 32 }, effects: { expr: 3, mood: 4, exp: 'exp_monitor_9', statusBuff: { id: 'bf_leader', name: '班干光环', turns: 4, type: 'pos', desc: '社交与学习心态更稳' } } },
+        { label: '上台大方演讲竞选班长（需表达≥28，当选班长：表达 +3，心态 +4）', reqAny: { expr: 28 }, effects: { expr: 3, mood: 4, exp: 'exp_monitor_9', statusBuff: { id: 'bf_leader', name: '班干光环', turns: 4, type: 'pos', desc: '社交与学习心态更稳' } } },
         { label: '帮同桌拉票当后勤小队长（同桌亲密 +5，表达 +2，心态 +2）', effects: { friendInt: 5, expr: 2, mood: 2 } },
         { label: '专心享受春游野餐不想操心（心态 +4，疲劳 -2）', effects: { mood: 4, fatigue: -2 } }
       ]
@@ -91,36 +95,72 @@ export function getMilestoneEventForTurn(state) {
     },
     {
       id: 'ms_grad_12', age: 12, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '小升初放榜与小学毕业同学录',
-      summary: `【12 岁大节点 · 当前学识 ${state.stats.knowledge}】小学毕业拍照留念！学识 ≥48 可升入重点初中实验班。`,
-      choices: [
-        { label: '考入重点初中实验班（需学识≥48，学识 +3，获「重点班」4季加速 Buff，拍毕业照）', reqAny: { knowledge: 48 }, effects: { knowledge: 3, mood: 4, exp: 'exp_mid_key', photo: '12岁小学毕业 · 重点班', statusBuff: { id: 'bf_key_class', name: '重点班节奏', turns: 4, type: 'pos', desc: '学习类行动额外+1' } } },
-        { label: '升入片区初中并和同桌互写同学录（同桌亲密 +6，表达 +2，心态 +3，拍毕业照）', effects: { friendInt: 6, expr: 2, mood: 3, photo: '12岁小学毕业同学录' } }
-      ]
+      title: '小升初放榜与小学毕业成绩单',
+      summary: (() => {
+        const rep = rollOrGetExamResult(state, 'p6');
+        const detail = rep.rows.map(r => `${r.label}${r.score}`).join(' · ');
+        return `【小升初 300 分制成绩单：总分 ${rep.finalScore} 分（${detail}）】满 256 分可升入重点初中实验班（初中单科吸收 ×1.12，并解锁理综/文综）！`;
+      })(),
+      choices: (() => {
+        const rep = rollOrGetExamResult(state, 'p6');
+        const strictPenalty = (rep.finalScore < 256 && state.origin.id === 'teacher') ? -6 : (rep.finalScore < 256 && state.origin.id === 'welloff' ? -5 : 0);
+        return [
+          {
+            label: `升入【重点初中实验班】（需小升初≥256分，当前 ${rep.finalScore} 分 · 初中吸收×1.12）`,
+            reqCustom: rep.finalScore >= 256,
+            effects: { setSchoolTier: 'key_mid', mood: 5, exp: 'exp_mid_key', photo: `12岁小升初${rep.finalScore}分·重点实验班`, statusBuff: { id: 'bf_key_class', name: '重点实验班', turns: 6, type: 'pos', desc: '初中单科吸收提速' } }
+          },
+          {
+            label: `升入【片区普通初中】并和同桌互写同学录（同桌亲密 +6，心态 ${3 + strictPenalty >= 0 ? '+' : ''}${3 + strictPenalty}）`,
+            effects: { setSchoolTier: 'normal', friendInt: 6, expr: 2, mood: 3 + strictPenalty, photo: `12岁小升初${rep.finalScore}分·小学毕业照` }
+          }
+        ];
+      })()
     },
     {
       id: 'ms_zhongkao_15', age: 15, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '中考成绩放榜与高中择校分叉',
+      title: '中考 660 分放榜与高中文理选科',
       summary: (() => {
-        const zk = clamp(state.stats.knowledge + (state.stats.mood >= 60 ? 3 : 0) + (state.experiences.includes('exp_mid_key') ? 2 : 0));
-        return `【15 岁核心分叉 · 中考折算分 ${zk} 分】不同去向将直接影响高中三年学习节奏与人生起点！`;
+        const rep = rollOrGetExamResult(state, 'zk');
+        const detail = rep.rows.map(r => `${r.label}${r.score}`).join(' · ');
+        return `【15岁中考成绩单：总分 ${rep.finalScore}/660 分（${detail}）】省重点线 580 分、普通高中线 460 分；升入高中同步选定主攻理科或文科！`;
       })(),
       choices: (() => {
-        const zk = clamp(state.stats.knowledge + (state.stats.mood >= 60 ? 3 : 0) + (state.experiences.includes('exp_mid_key') ? 2 : 0));
+        const rep = rollOrGetExamResult(state, 'zk');
+        const zk = rep.finalScore;
+        const strictPenalty = (zk < 580 && state.origin.id === 'teacher') ? -6 : (zk < 460 && state.origin.id === 'welloff' ? -5 : 0);
+        if (zk >= 580) {
+          return [
+            {
+              label: `录取【省重点高中 · 理科实验班】（当前 ${zk} 分 · 高中吸收×1.12，高考考理综300分）`,
+              effects: { setSchoolTier: 'key_high', setExamTrack: 'sci', mood: 6, gaokaoBonus: 2, exp: 'exp_high_key', photo: `15岁中考${zk}分·省重点理科`, statusBuff: { id: 'bf_key_high', name: '省重点学风', turns: 8, type: 'pos', desc: '高中专项吸收×1.12' } }
+            },
+            {
+              label: `录取【省重点高中 · 文科实验班】（当前 ${zk} 分 · 高中吸收×1.12，高考考文综300分）`,
+              effects: { setSchoolTier: 'key_high', setExamTrack: 'art', mood: 6, gaokaoBonus: 2, exp: 'exp_high_key', photo: `15岁中考${zk}分·省重点文科`, statusBuff: { id: 'bf_key_high', name: '省重点学风', turns: 8, type: 'pos', desc: '高中专项吸收×1.12' } }
+            }
+          ];
+        }
+        if (zk >= 460) {
+          return [
+            {
+              label: `升入【市普通高中 · 理科班】（当前 ${zk} 分 · 高考主攻数学与理综300分）`,
+              effects: { setSchoolTier: 'normal', setExamTrack: 'sci', mood: 3 + strictPenalty, friendInt: 3, exp: 'exp_high_norm', photo: `15岁中考${zk}分·普高理科` }
+            },
+            {
+              label: `升入【市普通高中 · 文科班】（当前 ${zk} 分 · 高考主攻语文与文综300分）`,
+              effects: { setSchoolTier: 'normal', setExamTrack: 'art', mood: 3 + strictPenalty, friendInt: 3, exp: 'exp_high_norm', photo: `15岁中考${zk}分·普高文科` }
+            },
+            {
+              label: '主动改走【职高 / 艺体特长班】（自理 +5，梦想专长 +12，补贴 +¥600）',
+              effects: { setSchoolTier: 'vocational', selfCare: 5, dream: 12, cash: 600, mood: 4, exp: 'exp_high_voc', photo: `15岁中考${zk}分·特长路线` }
+            }
+          ];
+        }
         return [
           {
-            label: `录取【省重点高中】（需中考分≥62，当前 ${zk} 分 · 学识 +4，高考临场 +1，心态 +5）`,
-            reqCustom: zk >= 62,
-            effects: { knowledge: 4, mood: 5, gaokaoBonus: 1, exp: 'exp_high_key', photo: `15岁中考${zk}分·省重点`, statusBuff: { id: 'bf_key_high', name: '重点高中', turns: 6, type: 'pos', desc: '冲刺效率大幅提升' } }
-          },
-          {
-            label: `录取【普通高中】（需中考分≥42，当前 ${zk} 分 · 均衡发展，心态 +3，同桌亲密 +3）`,
-            reqCustom: zk >= 42,
-            effects: { knowledge: 2, mood: 3, friendInt: 3, exp: 'exp_high_norm', photo: `15岁中考${zk}分·普通高中` }
-          },
-          {
-            label: '选择【职高 / 艺体特长班】（自理 +5，梦想专长 +8，现金补贴 +¥600，走出别样青春）',
-            effects: { selfCare: 5, dream: 8, cash: 600, mood: 4, exp: 'exp_high_voc', photo: `15岁中考${zk}分·特长逆袭` }
+            label: `进入【职高 / 艺体特长班】（中考 ${zk} 分未达普高线 · 自理 +6，梦想专长 +12，补贴 +¥600）`,
+            effects: { setSchoolTier: 'vocational', selfCare: 6, dream: 12, cash: 600, mood: 3 + strictPenalty, exp: 'exp_high_voc', photo: `15岁中考${zk}分·职高特长` }
           }
         ];
       })()
@@ -131,21 +171,24 @@ export function getMilestoneEventForTurn(state) {
       summary: '【16 岁独立体验】顶着盛夏太阳挣人生第一笔劳动报酬，顺手锻炼表达与自理能力。',
       choices: [
         { label: '去奶茶店/书店当暑期工（现金 +¥900，自理 +3，表达 +2，疲劳 +2）', effects: { cash: 900, selfCare: 3, expr: 2, fatigue: 2, photo: '16岁第一笔打工工资' } },
-        { label: '给初中生当数学家教（需学识≥60，现金 +¥1,400，学识 +2，表达 +2）', reqAny: { knowledge: 60 }, effects: { cash: 1400, knowledge: 2, expr: 2, fatigue: 1, photo: '16岁家教第一桶金' } },
-        { label: '在家里专注刷题备战高二（学识 +3，心态 -1）', effects: { knowledge: 3, mood: -1 } }
+        { label: '给初中生当数学家教（需数理≥60，现金 +¥1,400，数学扎实度 +4，表达 +2）', reqAny: { numLogic: 60 }, effects: { cash: 1400, subjBoost: { math: 4 }, expr: 2, fatigue: 1, photo: '16岁数学家教第一桶金' } },
+        { label: '在家里专注啃薄弱科目套卷（全科扎实度 +3，心态 -1）', effects: { subjBoost: { chn: 3, math: 3, eng: 3 }, mood: -1 } }
       ]
     },
     {
       id: 'ms_mock_17', age: 17, subTurn: 3, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '高考百日誓师与一模估分',
+      title: '高考百日誓师与高三一模成绩单',
       summary: (() => {
-        const est = clamp(state.stats.knowledge + (state.gaokaoHexBonus || 0) + (state.stats.mood >= 60 ? 2 : 0));
-        const tierTxt = est >= 90 ? '第一档清北线' : est >= 75 ? '第二档顶尖名校线' : est >= 50 ? '第三档主流本科线' : '专科线（可冲刺翻盘）';
-        return `【17 岁冲刺预警】一模预估落点：约 ${est} 分（${tierTxt}）。距离 18 岁高考仅剩最后 2 季！`;
+        const ep = getStudentExamPreview(state, []);
+        const rowsTxt = ep ? ep.paper.rows.map(r => `${r.label}${r.L}~${r.U}`).join(' · ') : '';
+        const lo = ep ? ep.curRange[0] : 500;
+        const hi = ep ? ep.curRange[1] : 530;
+        const tierTxt = hi >= 680 ? '冲刺清北线(680)' : hi >= 620 ? '冲刺985名校线(620)' : hi >= 500 ? '主流本科线(500)' : '专科区间(抓紧补弱)';
+        return `【高三一模预估：${lo}~${hi}/750 分（${rowsTxt}）】当前处于${tierTxt}，距 18 岁高考仅剩最后 2 季！`;
       })(),
       choices: [
-        { label: '立下冲刺军令状全力一搏（学识 +3，留存冲刺经历，疲劳 +2，获2季「考前手感」）', effects: { knowledge: 3, fatigue: 2, exp: 'exp_gaokao_sprint', statusBuff: { id: 'bf_sprint', name: '考前手感', turns: 2, type: 'pos', desc: '冲刺状态全开' } } },
-        { label: '稳住心态早睡早起保发挥（心态 +6，疲劳 -3，健康 +2）', effects: { mood: 6, fatigue: -3, health: 2 } }
+        { label: '立下冲刺军令状猛攻弱科（全科扎实度 +3，留存冲刺特招资格，疲劳 +2）', effects: { subjBoost: { chn: 3, math: 3, eng: 3, sci: 3, art: 3 }, fatigue: 2, exp: 'exp_gaokao_sprint', statusBuff: { id: 'bf_sprint', name: '考前手感', turns: 2, type: 'pos', desc: '冲刺吸收效率提升' } } },
+        { label: '稳住心态早睡早起收窄发挥波动（心态 +8，疲劳 -4，健康 +2）', effects: { mood: 8, fatigue: -4, health: 2 } }
       ]
     },
     {
@@ -224,11 +267,11 @@ export const RANDOM_EVENT_POOL = [
   },
   {
     id: 're_s1_blackboard', stage: 's1', gender: 'any', actionTags: ['study_self', 'study_tutor'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-    title: '被老师叫上讲台板演附加题',
-    summary: '全班安静下来，粉笔握在手里有点冒汗。',
+    title: '被数学老师叫上黑板解几何附加题',
+    summary: '全班安静下来，三角板和粉笔握在手里有点冒汗。',
     choices: [
-      { label: '行云流水写出两种解法（需学识≥32，学识 +2，表达 +2，获2季「手感火热」）', reqAny: { knowledge: 32 }, effects: { knowledge: 2, expr: 2, mood: 3, statusBuff: { id: 'bf_hot_study', name: '手感火热', turns: 2, type: 'pos', desc: '学习效率提升' } } },
-      { label: '硬着头皮写一半请同桌小声提示（同桌亲密 +3，学识 +1）', effects: { friendInt: 3, knowledge: 1 } }
+      { label: '画出辅助线写出漂亮解法（需数理≥28，数理 +2，数学扎实度 +4）', reqAny: { numLogic: 28 }, effects: { numLogic: 2, subjBoost: { math: 4 }, mood: 3, statusBuff: { id: 'bf_hot_study', name: '手感火热', turns: 2, type: 'pos', desc: '学习效率提升' } } },
+      { label: '写出一半步骤请同桌小声提示（同桌亲密 +3，数学扎实度 +2）', effects: { friendInt: 3, subjBoost: { math: 2 } } }
     ]
   },
   {
@@ -762,14 +805,38 @@ export function applyEventChoiceEffects(state, choice) {
     }
   }
 
+  ensureExamState(state);
+  const capD = state.age <= 18 ? getStageTextbookCap(state.age, state.subTurn) : 100;
   if (ef.cash) state.cash += ef.cash;
-  if (ef.knowledge) { state.stats.knowledge = clamp(state.stats.knowledge + ef.knowledge); state.usedThisYear.knowledge = true; }
+  if (ef.knowledge) {
+    state.statsRaw.knowledge = Math.min(capD, Math.max(0, state.statsRaw.knowledge + ef.knowledge));
+    syncVisibleAcademicStats(state);
+    state.usedThisYear.knowledge = true;
+  }
+  if (ef.numLogic) {
+    state.statsRaw.numLogic = Math.min(capD, Math.max(0, state.statsRaw.numLogic + ef.numLogic));
+    syncVisibleAcademicStats(state);
+    state.usedThisYear.numLogic = true;
+  }
+  if (ef.subjBoost && state.subjects) {
+    for (const [sk, dv] of Object.entries(ef.subjBoost)) {
+      if (typeof state.subjects[sk] === 'number') {
+        state.subjects[sk] = Math.min(capD, Math.max(0, state.subjects[sk] + dv));
+      }
+    }
+  }
+  if (ef.setSchoolTier) state.schoolTier = ef.setSchoolTier;
+  if (ef.setExamTrack) state.examTrack = ef.setExamTrack;
   if (ef.pro) { state.stats.pro = clamp(state.stats.pro + ef.pro); state.usedThisYear.pro = true; }
   if (ef.expr) { state.stats.expr = clamp(state.stats.expr + ef.expr); state.usedThisYear.expr = true; }
   if (ef.selfCare) { state.stats.selfCare = clamp(state.stats.selfCare + ef.selfCare); state.usedThisYear.selfCare = true; }
   if (ef.mainStudy) {
-    const mk = state.age <= 18 ? 'knowledge' : 'pro';
-    state.stats[mk] = clamp(state.stats[mk] + ef.mainStudy);
+    if (state.age <= 18) {
+      state.statsRaw.knowledge = Math.min(capD, state.statsRaw.knowledge + ef.mainStudy);
+      syncVisibleAcademicStats(state);
+    } else {
+      state.stats.pro = clamp(state.stats.pro + ef.mainStudy);
+    }
   }
   if (ef.health) state.stats.health = clamp(state.stats.health + ef.health);
   if (ef.mood) state.stats.mood = clamp(state.stats.mood + ef.mood);

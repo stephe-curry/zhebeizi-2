@@ -2,47 +2,52 @@
 // 核心架构：V4 整屏拍立得 ⇄ V5 撕纸贴纸盘(Combo+季节限定) ⇄ 1.8s过场剧场 ⇄ 命运海克斯 2.0 ⇄ V3 定格
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS, PROMO_REQ
-} from './data.js?v=s40';
+} from './data.js?v=s51';
 import {
   clamp, monthlyPmt, getSubStage, getSubStageIndex, getDateStamp, getMacroParams,
   createInitialState, ensureSprint1State, getEffectiveFatigueLimit, getPendingHextechAge,
   getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
   getTurnSlotBudget, getAvailableActions, previewDraft, executeTurn, getNetWorth, evaluateEnding
-} from './engine.js?v=s40';
+} from './engine.js?v=s51';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_CARD_MAP, hasHex, getHexInstance,
   getHexBondCounts, getBondTier, getNewBondTriggersForCard,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s40';
+} from './hextech.js?v=s51';
 import {
   SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
-} from './combos.js?v=s40';
+} from './combos.js?v=s51';
 import {
   applyEventChoiceEffects
-} from './events.js?v=s40';
+} from './events.js?v=s51';
 import {
   getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
   TUCK_CARDS_12, TUCK_GOODS, drawSnackCard, buyTuckGood, buyTuckGift,
   getOrRollHouseListings
-} from './lifeFeatures.js?v=s40';
+} from './lifeFeatures.js?v=s51';
 import {
   applyGracefulPivot, DREAM_CATALOG, rollDreamLifecycleEvent,
   settleDreamQualifier, settleDreamClimax, addKeepsakeWithStory
-} from './dreams.js?v=s40';
+} from './dreams.js?v=s51';
 import {
   triggerHaptic, playComboCollisionVfx, openHextechV4Modal,
   renderNewAssetsTab, bindNewAssetsInteractions, renderDreamJournalSection
-} from './vfxAndUi.js?v=s40';
-import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s40';
+} from './vfxAndUi.js?v=s51';
+import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s51';
 import {
   rollStageArcadeMoment, openRingTossGame, openNostalgiaLinkGame, openBellDashGame,
   openWorkSliceGame, openRedPacketRainGame, openLakeFishingGame
-} from './arcadeGames.js?v=s40';
-import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s40';
-import { openTuckShopV2 } from './tuckShopV2.js?v=s40';
-import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s40b';
-import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s40';
-import { pxIcon, chevDownIcon } from './icons.js?v=s40';
+} from './arcadeGames.js?v=s51';
+import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s51';
+import { openTuckShopV2, openCardSlapModal } from './tuckShopV2.js?v=s51';
+import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s51';
+import {
+  SUBJECT_META, getSelectableSubjects, getStageTextbookCap, getLifeStageCompass,
+  getStudentExamPreview, rollOrGetExamResult, CHILD_POLICIES,
+  ensureChildExamProfile, getChildExamPreviewSummary
+} from './examSystem.js?v=s51';
+import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s51';
+import { pxIcon, chevDownIcon, lineNavIcon } from './icons.js?v=s51';
 
 const appEl = document.getElementById('app');
 
@@ -208,10 +213,13 @@ function getActionMeta(a, s) {
   if (a.isDreamAction) {
     return { wellBg: a.wellBg || ds.wellBg, slotBg: '#ebe2f8', slotFg: '#6f50a8', ico: a.ico || 'dream', short: a.short || a.name.slice(0, 4) };
   }
+  const selSubj = SUBJECT_META[s.selectedSubject || 'chn'] || SUBJECT_META.chn;
+  const kf = s.tutorKidFocus || 'balanced';
+  const kfShort = kf === 'lit' ? '辅导文科' : kf === 'num' ? '辅导理科' : '辅导功课';
   const map = {
-    study_self:        { ico: 'study',    short: '课业自习' },
-    study_tutor:       { ico: 'tutor',    short: '付费补习' },
-    gaokao_sprint:     { ico: 'sprint',   short: '考前冲刺' },
+    study_self:        { ico: selSubj.ico || 'study', short: selSubj.short },
+    study_tutor:       { ico: 'tutor',    short: `补习${selSubj.label}` },
+    gaokao_sprint:     { ico: 'sprint',   short: `刷卷${selSubj.label}` },
     uni_study:         { ico: 'study',    short: '泡馆修学' },
     uni_intern:        { ico: 'work',     short: '实习项目' },
     uni_parttime:      { ico: 'tutor',    short: '家教兼职' },
@@ -225,7 +233,7 @@ function getActionMeta(a, s) {
     accompany_friend:  { ico: 'social',   short: s.age <= 18 ? '找同桌玩' : '约老友' },
     date_partner:      { ico: 'heart',    short: s.relations.partner?.married ? '夫妻约会' : '恋爱约会' },
     square_dance:      { ico: 'dance',    short: '跳广场舞' },
-    tutor_kid:         { ico: 'study',    short: '辅导作业' },
+    tutor_kid:         { ico: 'study',    short: kfShort },
     play_kid:          { ico: 'baby',     short: '陪娃玩' },
     train_dream:       { ico: 'dream',    short: '追梦专练' },
     exercise:          { ico: 'exercise', short: s.age >= 51 ? '太极散步' : '体育锻炼' },
@@ -573,6 +581,32 @@ async function initSpritesAndRender() {
       s.age = 12; s.subTurn = 2; s.totalTurns = 14; s.hexTriggeredAges = [6, 12];
       state = s;
       activeTab = 'home';
+    } else if (preset === 'v5home') {
+      const s = createInitialState('teacher', 't_shelf', 'male');
+      s.age = 8; s.subTurn = 2; s.totalTurns = 5; s.cash = 3188;
+      s.stats.expr = 26; s.stats.health = 93; s.stats.mood = 100;
+      s.hexTriggeredAges = [6];
+      state = s;
+      activeTab = 'home';
+    } else if (preset === 'slapv2') {
+      const s = createInitialState('merchant', 't_shopkid', 'male');
+      s.age = 9; s.subTurn = 2; s.totalTurns = 8; s.cash = 1680;
+      s.snackCards = ['01 及时雨·宋江', '02 行者·武松', '04 花和尚·鲁智深'];
+      s.dupSnackCards = 3;
+      s.hexTriggeredAges = [6];
+      state = s;
+      activeTab = 'home';
+    } else if (preset === 'exam18') {
+      const s = createInitialState('poor', 't_grit', 'male');
+      s.age = 18; s.subTurn = 2; s.totalTurns = 37;
+      s.stats.knowledge = 86; s.stats.numLogic = 96;
+      s.statsRaw = { knowledge: 86, numLogic: 96 };
+      s.subjects = { chn: 88, math: 98, eng: 86, art: 42, sci: 98 };
+      s.examTrack = 'sci'; s.schoolTier = 'key_high';
+      s.experiences.push('exp_gaokao_sprint');
+      s.hexTriggeredAges = [6, 12, 18];
+      state = s;
+      activeTab = 'home';
     }
   } catch (_) {}
   render();
@@ -594,6 +628,12 @@ async function initSpritesAndRender() {
     }, () => render(), { isMidTurn: true }), 120);
   } else if (window.location.search.includes('preset=tuckv2')) {
     setTimeout(() => openTuckShopSheet(), 120);
+  } else if (window.location.search.includes('preset=slapv2')) {
+    setTimeout(() => openCardSlapModal({
+      state, mountOverlay, clearOverlay, saveAutoProgress, renderMain: render, showToast, fmtMoney
+    }, () => openTuckShopSheet()), 120);
+  } else if (window.location.search.includes('preset=exam18')) {
+    setTimeout(() => openGaokaoV3(() => render()), 120);
   } else if (window.location.search.includes('preset=gamesv4')) {
     const g = new URLSearchParams(window.location.search).get('g') || 'rhythm_master';
     setTimeout(() => launchArcadeGame(g), 120);
@@ -654,6 +694,18 @@ function render() {
   const stageHs = (!drawerOpen && !theaterState) ? getOrRollStageHotspot(state) : null;
   const petStage = (state.pet && state.pet.alive) ? getPetLifeStage(state.pet) : null;
   let bodyHtml = '';
+  const navTabsHtml = (cls = 'bottom-nav v5-line-nav') => `
+    <nav class="${cls}">
+      <button class="nav-tab ${activeTab==='home'?'active':''}" data-tab="home"><span class="ico">${lineNavIcon('home', 22)}</span><span>主页</span></button>
+      <button class="nav-tab ${activeTab==='assets'?'active':''} ${unlockAssets?'':'locked'}" data-tab="assets"><span class="ico">${lineNavIcon('assets', 22)}</span><span>家与账</span></button>
+      <button class="nav-tab ${activeTab==='social'?'active':''} ${unlockSocial?'':'locked'}" data-tab="social"><span class="ico">${lineNavIcon('social', 22)}</span><span>亲友梦</span></button>
+      <button class="nav-tab ${activeTab==='album'?'active':''} ${unlockAlbum?'':'locked'} ${albumBounce?'bounce':''}" data-tab="album">
+        <span class="ico">${lineNavIcon('album', 22)}</span><span>相册</span>
+        <span class="nav-badge">${state.albumPhotos.length}</span>
+      </button>
+    </nav>
+  `;
+
   if (activeTab === 'home') {
     const livePrev = drawerOpen && draft.length > 0 ? previewDraft(state, draft) : null;
     const fmtDelta = (v, label = '') => v > 0 ? `<span class="pill-delta pos">${label}+${v}</span>` : v < 0 ? `<span class="pill-delta neg">${label}-${Math.abs(v)}</span>` : '';
@@ -661,67 +713,72 @@ function render() {
     const animCls = heroStageAnim ? heroStageAnim.anim : (heroHop ? 'hop' : '');
     const lightCls = heroStageAnim?.light ? `on ${heroStageAnim.light}` : '';
     const theaterBeat = theaterState ? theaterState.beats[theaterState.idx] : null;
+    const compass = getLifeStageCompass(state, draft, PROMO_REQ);
+
     bodyHtml = `
-      <div class="v4-wrapper">
-        <!-- L1 顶部统一 4 列直白状态栏（排程时下方浮出实时红绿变动角标） -->
-        <div class="hud-pills">
-          <div class="pill" id="hud-era">
-            <span class="pill-label">年龄</span>
-            <span class="pill-val">${state.age}岁</span>
-          </div>
-          <div class="pill" id="hud-cash">
-            <span class="pill-label">现金</span>
-            <span class="pill-val">¥${fmtMoney(state.cash)}</span>
+      <div class="v5-home-wrapper">
+        <!-- L1 顶部 4 枚独立悬浮圆润奶油胶囊（#4a3728 棕线像素图标 + 清晰数值，零系统表情符号） -->
+        <div class="v5-hud-float">
+          <button class="v5-pill age-pill" id="hud-era" title="查看时代简报">
+            <span class="vp-val">${state.age}岁</span>
+          </button>
+          <button class="v5-pill cash-pill" id="hud-cash" title="进入家与账">
+            ${pxIcon('coin', 16)}
+            <span class="vp-val">¥${fmtMoney(state.cash)}</span>
             ${livePrev && livePrev.cash !== 0 ? `<span class="pill-delta ${livePrev.cash>0?'pos':'neg'}">${livePrev.cash>0?'+':'-'}¥${fmtMoney(Math.abs(livePrev.cash))}</span>` : ''}
+          </button>
+          <div class="v5-pill stat-pill" id="hud-health">
+            ${pxIcon('heart', 15)}
+            <div class="vp-col">
+              <span class="vp-val" style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span>
+              <div class="vp-bar"><i style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></i></div>
+            </div>
+            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健') : ''}
           </div>
-          <div class="pill" id="hud-health">
-            <span class="pill-label">健康</span>
-            <span class="pill-val" style="color:${state.stats.health<30?'var(--red)':'var(--green)'}">${state.stats.health}</span>
-            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></div></div>
-            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健康 ') : ''}
-          </div>
-          <div class="pill" id="hud-mood">
-            <span class="pill-label">心态</span>
-            <span class="pill-val" style="color:${state.stats.mood<35?'var(--red)':'var(--accent)'}">${state.stats.mood}</span>
-            <div class="pill-bar"><div class="pill-bar-fill" style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></div></div>
-            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心态 ') : ''}
+          <div class="v5-pill stat-pill" id="hud-mood">
+            ${pxIcon('smile', 15)}
+            <div class="vp-col">
+              <span class="vp-val" style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span>
+              <div class="vp-bar"><i style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></i></div>
+            </div>
+            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心') : ''}
           </div>
         </div>
 
-        <!-- L2 全屏轻像素沉浸舞台（含实时动作反馈、道具贴片、主屏萌宠、闪光彩蛋与 1.8s 连播小剧场） -->
-        <div class="scene-stage ${drawerOpen ? 'drawer-open' : ''}" id="scene-stage">
+        <!-- L2 100% 全屏通铺轻像素生活全景舞台（与悬浮撕边手账纸无缝联动） -->
+        <div class="scene-stage v5-full-stage ${drawerOpen ? 'drawer-open' : ''}" id="scene-stage">
           <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
           <div class="film-overlay"></div>
           <div class="film-lightleak"></div>
           <div class="stage-light ${lightCls}" id="stage-light"></div>
           ${!drawerOpen && !theaterState ? `
-            <button class="hex-btn ${pendingHexAge ? 'glow' : ''}" id="btn-hex-deck">
-              ${pxIcon('hex', 15)}
+            <button class="hex-btn v5-frosted ${pendingHexAge ? 'glow' : ''}" id="btn-hex-deck">
+              ${pxIcon('hex', 13)}
               <span>${pendingHexAge ? '觉醒海克斯!' : '海克斯'}</span>
-              <span class="hex-cnt">${hexCount}/7${!pendingHexAge && nextHexAge ? ` · ${nextHexAge}岁` : ''}</span>
+              <span class="hex-cnt">${hexCount}/7${!pendingHexAge && nextHexAge ? `·${nextHexAge}岁` : ''}</span>
               ${pendingHexAge ? '<span class="hex-dot"></span>' : ''}
             </button>
-            <button class="news-btn" id="btn-news">${pxIcon('news', 15)} 时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
+            <button class="news-btn v5-frosted" id="btn-news">时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
             ${(state.statusBuffs || []).length ? `
-              <div class="buff-strip">
+              <div class="buff-strip v5-buff-pos">
                 ${state.statusBuffs.map(bf => `<span class="buff-pill ${bf.type === 'neg' ? 'neg' : ''}">${bf.name} ${bf.turns}季</span>`).join('')}
               </div>
             ` : ''}
           ` : ''}
           ${stageHs && !stageHs.claimed ? `
-            <button class="stage-hotspot" id="btn-stage-hs" style="left:${stageHs.left}%;bottom:${stageHs.bottom}%;" title="${stageHs.label}">
+            <button class="stage-hotspot" id="btn-stage-hs" style="left:${stageHs.left}%;bottom:${Math.max(43, stageHs.bottom)}%;" title="${stageHs.label}">
               ${pxIcon(stageHs.ico, 17)}
               <span class="hs-lbl">${stageHs.label}</span>
             </button>
           ` : ''}
           ${petStage && !drawerOpen ? `
-            <button class="stage-pet ${petHopSound ? 'pet-hop' : ''}" id="btn-stage-pet" title="摸一摸${state.pet.name}">
-              ${petHopSound ? `<span class="pet-heart">♥ ${petHopSound}</span>` : ''}
+            <button class="stage-pet v5-pet-pos ${petHopSound ? 'pet-hop' : ''}" id="btn-stage-pet" title="摸一摸${state.pet.name}">
+              ${petHopSound ? `<span class="pet-heart">${pxIcon('heart', 11)} ${petHopSound}</span>` : ''}
               <span class="pet-body" style="transform:scale(${petStage.scale});">${pxIcon(state.pet.ico, 38)}</span>
               <span class="pet-tag">${state.pet.name}</span>
             </button>
           ` : ''}
-          <div class="hero-anchor ${animCls}" id="hero-tap">
+          <div class="hero-anchor v5-hero ${animCls}" id="hero-tap">
             ${heroStageAnim?.bubble ? `<div class="hero-speech">${heroStageAnim.bubble}</div>` : (bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : '')}
             ${heroStageAnim?.prop ? `<div class="hero-prop">${pxIcon(heroStageAnim.prop, 20)}</div>` : ''}
             ${heroStageAnim?.subProp ? `<div class="hero-prop-sub">${pxIcon(heroStageAnim.subProp, 14)}</div>` : ''}
@@ -731,36 +788,62 @@ function render() {
           ${comboBurstText ? `<div class="combo-burst">${pxIcon('combo', 15)} ${comboBurstText}</div>` : ''}
           ${floatPops.length ? `<div class="float-layer">${floatPops.map((p, idx) => `<div class="float-pop ${p.k}" style="animation-delay:${idx*140}ms;left:${48 + (idx%2===0?-8:8)}%;">${p.text}</div>`).join('')}</div>` : ''}
           ${theaterState ? `
-            <div class="theater-bar" id="theater-skip">
+            <div class="theater-bar v5-theater-pos" id="theater-skip">
               <div class="theater-dots">
                 ${theaterState.beats.map((_, i) => `<i class="${i < theaterState.idx ? 'done' : i === theaterState.idx ? 'now' : ''}"></i>`).join('')}
               </div>
               <span class="theater-txt">${theaterState.comboShown ? '连携碰撞达成！' : `${theaterBeat?.name || ''} · ${theaterBeat?.text || ''}`}</span>
               <span class="theater-skip">轻点跳过 ›</span>
             </div>
-          ` : `${!drawerOpen && cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}<div class="date-stamp">${stamp}</div>`}
-        </div>
-
-        <!-- L3 拍立得厚白边：单行标题 + 柔和副标题 + 季节进度点 + 唯一主按钮 -->
-        <div class="polaroid-margin">
-          <div class="washi-tape left"></div>
-          <div class="washi-tape right"></div>
-          <div class="season-caption">${getSeasonTitle(state)}</div>
-          <div class="season-mood">${getSeasonMood(state)}</div>
-          <div class="season-dots">
-            ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
-            <span class="season-dots-label">本年第 ${state.subTurn}/${mp.subTurns} 季${state.age <= 18 && state.subTurn === 2 ? ' · 暑假限定' : ''}</span>
-          </div>
-          ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
-          <button class="cta-main" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText}</button>
+          ` : `${!drawerOpen && cornerSticker ? `<button class="corner-sticker v5-corner-pos" id="corner-btn">${pxIcon(cornerSticker.ico, 14)} ${cornerSticker.label}</button>` : ''}${!drawerOpen ? `<div class="date-stamp v5-stamp-pos">${stamp}</div>` : ''}`}
         </div>
 
         <!-- 暖白手账纸条轻提示 -->
         ${toastMsg ? `<div class="toast-ribbon" id="toast-close">${toastMsg}</div>` : ''}
 
-        <!-- V5 方案 A：4 列手账贴纸盘排程抽屉 -->
+        <!-- 背景轻暗幕（展开排程时可点空白收折） -->
         <div class="drawer-backdrop ${drawerOpen ? 'open' : ''}" id="drawer-mask"></div>
-        ${renderV5Drawer(actions, budget)}
+
+        <!-- L3 同一张悬浮「手撕锯齿毛边手账纸」：折叠静息态 ⇄ 340ms 原地拉高展开排程态！ -->
+        <div class="v5-journal-sheet ${drawerOpen ? 'open' : ''}" id="v5-sheet">
+          <svg class="v5-torn-edge" viewBox="0 0 390 15" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0,15 L0,7.2 L9,4.8 L17,8.4 L26,4.2 L35,7.9 L46,3.8 L56,8.2 L67,4.9 L78,8.6 L89,3.6 L101,7.8 L112,4.6 L124,8.5 L136,4.1 L148,7.6 L159,3.9 L171,8.1 L183,4.7 L195,8.3 L207,3.7 L219,7.9 L231,4.5 L243,8.4 L255,3.9 L267,7.7 L279,4.8 L291,8.5 L303,4.0 L315,7.8 L327,4.6 L339,8.3 L351,4.2 L363,7.9 L374,4.7 L383,8.0 L390,5.8 L390,15 Z" fill="#efe6d6"/>
+            <path d="M0,15 L0,8.6 L9,6.2 L17,9.6 L26,5.6 L35,9.1 L46,5.2 L56,9.4 L67,6.3 L78,9.8 L89,5.0 L101,9.0 L112,6.0 L124,9.7 L136,5.5 L148,8.9 L159,5.3 L171,9.3 L183,6.1 L195,9.5 L207,5.1 L219,9.1 L231,5.9 L243,9.6 L255,5.3 L267,8.9 L279,6.2 L291,9.7 L303,5.4 L315,9.0 L327,6.0 L339,9.5 L351,5.6 L363,9.1 L374,6.1 L383,9.2 L390,7.2 L390,15 Z" fill="#fffdf9"/>
+          </svg>
+          <div class="v5-cross-tape green"></div>
+          <div class="v5-cross-tape pink"></div>
+
+          <!-- 静息折叠态内容 -->
+          <div class="v5-rest-view">
+            <div class="v5-season-row">
+              <div class="season-caption">${getSeasonTitle(state)}</div>
+              <div class="season-dots compact">
+                ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
+              </div>
+            </div>
+
+            <!-- 下一关里程碑路标条（点击即展开全阶段五项核心能力与考分预测便签） -->
+            <button class="v5-compass-card" id="btn-compass-home" title="点击查看当前五项指标与下一关要求">
+              <div class="vc-top">
+                <span class="vc-kicker">${compass.kicker}</span>
+                <span class="vc-badge">${compass.badge} ›</span>
+              </div>
+              <div class="vc-main">${compass.main}</div>
+              <div class="vc-track"><i style="width:${compass.pct}%"></i></div>
+            </button>
+
+            ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
+            <button class="cta-main v5-cta" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText}</button>
+
+            <!-- 内嵌于手账纸底沿的极简细棕线 4 Tab 导航栏 -->
+            ${navTabsHtml('v5-inline-nav')}
+          </div>
+
+          <!-- 原地向上拉高展开后的排程态内容 -->
+          <div class="v5-expand-view">
+            ${renderV5Drawer(actions, budget, compass)}
+          </div>
+        </div>
       </div>
     `;
   } else if (activeTab === 'assets') {
@@ -771,21 +854,12 @@ function render() {
     bodyHtml = renderAlbumTab();
   }
 
-  const hideBottomNav = activeTab === 'home' && drawerOpen;
   appEl.innerHTML = `
     <div class="phone-stage-outer">
       <div class="phone-frame">
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
         ${bodyHtml}
-        <nav class="bottom-nav ${hideBottomNav ? 'hidden-for-drawer' : ''}">
-          <button class="nav-tab ${activeTab==='home'?'active':''}" data-tab="home"><span class="ico">${pxIcon('home', 22)}</span><span>主页</span></button>
-          <button class="nav-tab ${activeTab==='assets'?'active':''} ${unlockAssets?'':'locked'}" data-tab="assets"><span class="ico">${pxIcon('bag', 22)}</span><span>家与账</span></button>
-          <button class="nav-tab ${activeTab==='social'?'active':''} ${unlockSocial?'':'locked'}" data-tab="social"><span class="ico">${pxIcon('heart', 22)}</span><span>亲友梦</span></button>
-          <button class="nav-tab ${activeTab==='album'?'active':''} ${unlockAlbum?'':'locked'} ${albumBounce?'bounce':''}" data-tab="album">
-            <span class="ico">${pxIcon('film', 22)}</span><span>相册</span>
-            <span class="nav-badge">${state.albumPhotos.length}</span>
-          </button>
-        </nav>
+        ${activeTab !== 'home' ? navTabsHtml('bottom-nav v5-line-nav') : ''}
       </div>
     </div>
   `;
@@ -793,9 +867,9 @@ function render() {
   bindMainEvents(actions, budget, cornerSticker);
 }
 
-function renderV5Drawer(actions, budget) {
+function renderV5Drawer(actions, budget, compass) {
   const prev = previewDraft(state, draft);
-  const goal = getGoalMeta(state);
+  const cp = compass || getLifeStageCompass(state, draft, PROMO_REQ);
   const recMap = getRecommendedActionMap(state, actions);
   const isFirstTurn = (state.totalTurns || 0) === 0;
   const isFull = draft.length >= budget.available;
@@ -877,11 +951,40 @@ function renderV5Drawer(actions, budget) {
       ? `<span class="go-pill">差 ${remain} 格</span>`
       : `<span class="go-pill">已排满</span>`;
 
+  const isHighSchool = state.age > 15 || (state.age === 15 && state.subTurn >= 3);
+  const subjSelectorHtml = state.age <= 18 ? (() => {
+    const availSubjs = getSelectableSubjects(state);
+    const capD = getStageTextbookCap(state.age, state.subTurn);
+    return `
+      <div class="v5-subj-bar">
+        <span class="vsb-lbl">选科:</span>
+        ${availSubjs.map(sk => {
+          const sm = SUBJECT_META[sk];
+          const val = Math.round(state.subjects?.[sk] || 20);
+          const isSel = (state.selectedSubject || 'chn') === sk;
+          const isCap = val >= capD;
+          return `<button class="vsb-pill ${isSel ? 'active' : ''} ${isCap ? 'capped' : ''}" data-subj="${sk}">${sm.label}<i>${val}${isCap ? '满' : ''}</i></button>`;
+        }).join('')}
+        ${isHighSchool && state.age <= 18 ? `
+          <button class="vsb-track-btn" id="v5-toggle-track" title="切换高中文理卷">${state.examTrack === 'art' ? '文科卷' : '理科卷'} ⇄</button>
+        ` : ''}
+      </div>
+    `;
+  })() : (state.child && (state.age - state.child.bornAge) <= 18 ? `
+    <div class="v5-subj-bar">
+      <span class="vsb-lbl">辅导娃:</span>
+      ${[
+        { id: 'balanced', lb: '全科均衡' },
+        { id: 'lit', lb: `补文科(学识${state.stats.knowledge})` },
+        { id: 'num', lb: `补理科(数理${state.stats.numLogic})` }
+      ].map(it => `<button class="vsb-pill ${(state.tutorKidFocus || 'balanced') === it.id ? 'active' : ''}" data-kid-focus="${it.id}">${it.lb}</button>`).join('')}
+    </div>
+  ` : '');
+
   return `
-    <div class="v5-drawer ${drawerOpen ? 'open' : ''}">
-      <div class="v5-grab"></div>
+    <div class="v5-drawer-inner">
       <div class="v5-head">
-        <span class="v5-title">本季安排<b>${draft.length}/${budget.available}</b></span>
+        <span class="v5-title">本季安排<b>${draft.length}/${budget.available}</b> <small class="v5-axis-mini">${state.age <= 18 ? `学识${state.stats.knowledge} · 数理${state.stats.numLogic}` : `专业${state.stats.pro} · 表达${state.stats.expr}`}</small></span>
         <div class="v5-tools">
           ${primaryToolHtml}
           <button class="ico-btn" id="v5-more-toggle" aria-label="更多操作">···</button>
@@ -890,9 +993,9 @@ function renderV5Drawer(actions, budget) {
         ${moreMenuOpen ? `
           <div class="v5-more-menu" id="v5-more-menu">
             <button class="v5-more-item" id="v5-smart-menu">${pxIcon('spark', 13)} 智能帮我安排</button>
-            <button class="v5-more-item" id="v5-reuse-menu" ${state.lastDraft.length ? '' : 'disabled'}>↺ 沿用上次排程</button>
+            <button class="v5-more-item" id="v5-reuse-menu" ${state.lastDraft.length ? '' : 'disabled'}>沿用上次排程</button>
             <button class="v5-more-item" id="v5-tpl">${state.templates.balance.length ? '载入我的模板' : '存为我的模板'}</button>
-            <button class="v5-more-item danger" id="v5-clear" ${draft.length ? '' : 'disabled'}>✕ 清空当前槽位</button>
+            <button class="v5-more-item danger" id="v5-clear" ${draft.length ? '' : 'disabled'}>清空当前槽位</button>
           </div>
         ` : ''}
       </div>
@@ -901,16 +1004,18 @@ function renderV5Drawer(actions, budget) {
         ${draft.map((id, i) => {
           const a = actions.find(x => x.id === id);
           const m = a ? getActionMeta(a, state) : { short: id, slotBg: 'var(--accent-soft)', slotFg: 'var(--accent)' };
-          return `<button class="stamp-slot filled" style="--slot-bg:${m.slotBg};--slot-fg:${m.slotFg};" data-rm="${i}" title="点击移除">${m.short}<span class="sx">✕</span></button>`;
+          return `<button class="stamp-slot filled" style="--slot-bg:${m.slotBg};--slot-fg:${m.slotFg};" data-rm="${i}" title="点击移除">${m.short}<span class="sx">×</span></button>`;
         }).join('')}
         ${Array.from({ length: remain }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
       </div>
 
-      <div class="goal-note">
+      <button class="goal-note clickable-compass" id="btn-compass-drawer" title="点击查看全阶段指标详情与各科区间">
         ${pxIcon('pin', 13)}
-        <span class="gn-text">${goal.text}</span>
-        ${goal.pct !== null ? `<span class="gn-bar"><i style="width:${goal.pct}%"></i></span><span class="gn-num">${goal.label}</span>` : ''}
-      </div>
+        <span class="gn-text">${cp.subHint ? `${cp.main} · ${cp.subHint}` : `${cp.kicker.replace('下一关 · ', '')}：${cp.main}`}</span>
+        <span class="gn-num">${cp.badge} ›</span>
+      </button>
+
+      ${subjSelectorHtml}
 
       <div class="combo-live-strip ${prev.combos.length ? 'lit' : ''}">
         ${pxIcon('combo', 13)}
@@ -965,10 +1070,11 @@ function renderAssetsTab() {
 
 function renderSocialTab(budget) {
   const statList = [
-    { lb: '学识', val: state.stats.knowledge, color: '#4a7fc1' },
-    { lb: '专业', val: state.stats.pro, color: '#c9683a' },
-    { lb: '表达', val: state.stats.expr, color: '#d05d80' },
-    { lb: '自理理财', val: state.stats.selfCare, color: '#469062' }
+    { lb: '学识(文)', val: state.stats.knowledge, color: '#4a7fc1' },
+    { lb: '数理(理)', val: state.stats.numLogic || 20, color: '#3b8760' },
+    { lb: '专业(职)', val: state.stats.pro, color: '#c9683a' },
+    { lb: '表达(社)', val: state.stats.expr, color: '#d05d80' },
+    { lb: '自理理财', val: state.stats.selfCare, color: '#8f6b3e' }
   ];
 
   const people = [
@@ -992,12 +1098,14 @@ function renderSocialTab(budget) {
     });
   }
   if (state.child) {
+    const kidAge = state.age - state.child.bornAge;
     people.push({
       ico: 'avatarKid',
-      name: `孩子 (${state.age - state.child.bornAge}岁)`,
-      role: '亲子档案',
+      name: `孩子 (${kidAge}岁)`,
+      role: state.child.universityName ? `已读 ${state.child.universityName}` : '亲子档案',
       val: state.child.bond,
       kid: state.child,
+      kidAge,
       alt: false
     });
   }
@@ -1013,16 +1121,16 @@ function renderSocialTab(budget) {
     });
   }
 
-  const rallyStops = [20, 40, 60, 80, 100];
-  const dreamPct = Math.min(100, state.dreamSkill);
+  const kidSummary = state.child ? getChildExamPreviewSummary(state) : null;
+  const kidEp = state.child ? ensureChildExamProfile(state) : null;
 
   return `
     <div class="tab-page">
-      <!-- 四维能力成长手账 -->
+      <!-- 五维核心能力成长手账 -->
       <div class="stat-ledger">
         <div class="sec-head-row">
-          <span class="sec-title">${pxIcon('study', 17)} 四维成长档案</span>
-          <span class="tag">${state.age >= state.gradAge && !state.retired ? `职级 L${state.jobLevel} · 项目 ${state.projectCount}` : `阶段：${getSubStage(state.age).name}`}</span>
+          <span class="sec-title">${pxIcon('study', 17)} 五项核心能力档案</span>
+          <button class="pill-btn soft" id="t-open-compass" style="height:26px;padding:0 9px;font-size:11px;">阶段过关标准 ›</button>
         </div>
         <div class="stat-bars">
           ${statList.map(st => `
@@ -1040,10 +1148,34 @@ function renderSocialTab(budget) {
         </div>
         ${state.age >= state.gradAge && !state.retired && state.jobLevel < 5 ? `
           <div style="margin-top:10px;display:flex;justify-content:center;">
-            <button class="pill-btn primary" id="t-promo">${pxIcon('sprint', 14)} 申请晋升 L${state.jobLevel + 1}（需专业≥${PROMO_REQ[state.jobLevel + 1]}）</button>
+            <button class="pill-btn primary" id="t-promo">${pxIcon('sprint', 14)} 申请晋升 L${state.jobLevel + 1}（需专业≥${PROMO_REQ[state.jobLevel + 1]} · 项目≥${state.jobLevel}）</button>
           </div>
         ` : ''}
       </div>
+
+      ${state.child && kidEp ? `
+        <div class="sec-card">
+          <div class="sec-head-row" style="margin-bottom:6px;">
+            <span class="sec-title">${pxIcon('baby', 16)} 子女培养方针与升学成绩单</span>
+            <span class="tag up">${kidSummary ? `${kidSummary.examLabel} 预计 ${kidSummary.range[0]}~${kidSummary.range[1]}分` : (state.child.universityName || '启蒙成长期')}</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:7px;">
+            ${Object.values(CHILD_POLICIES).map(pol => `
+              <button class="pill-btn ${kidEp.policy === pol.id ? 'primary' : ''}" data-kid-pol="${pol.id}" style="flex:1;justify-content:center;height:30px;padding:0 6px;font-size:11.5px;">${pol.name}</button>
+            `).join('')}
+          </div>
+          <div style="font-size:11.5px;color:var(--muted);line-height:1.45;">
+            ${CHILD_POLICIES[kidEp.policy]?.desc || ''}${kidSummary ? `<br/>当前娃学识 <b>${kidSummary.lit}</b> · 娃数理 <b>${kidSummary.num}</b>（独立天赋，复用 38 季区间算分制）` : ''}
+          </div>
+          ${Object.keys(kidEp.reports || {}).length > 0 ? `
+            <div style="margin-top:7px;padding-top:6px;border-top:1px dashed var(--border);font-size:11.5px;color:var(--ink);">
+              ${kidEp.reports.p6 ? `<div>· 12岁小升初：<b>${kidEp.reports.p6.finalScore}/300分</b>（${kidEp.reports.p6.admitted}）</div>` : ''}
+              ${kidEp.reports.zk ? `<div>· 15岁中考：<b>${kidEp.reports.zk.finalScore}/660分</b>（${kidEp.reports.zk.admitted}）</div>` : ''}
+              ${kidEp.reports.gk ? `<div>· 18岁高考：<b>${kidEp.reports.gk.finalScore}/750分</b>（${kidEp.reports.gk.admitted}）</div>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
 
       <!-- 千禧同学录 · 亲友头像卡 -->
       <div class="yearbook-sec">
@@ -1070,7 +1202,7 @@ function renderSocialTab(budget) {
                   <span class="yb-kid-chip">学业 ${p.kid.study}</span>
                   <span class="yb-kid-chip">心态 ${p.kid.mood}</span>
                 </div>
-              ` : p.help ? `<span class="yb-help-tag">★ 可互相帮衬</span>` : ''}
+              ` : p.help ? `<span class="yb-help-tag">可互相帮衬</span>` : ''}
             </div>
           `).join('')}
         </div>
@@ -1130,13 +1262,83 @@ function bindMainEvents(actions, budget, cornerSticker) {
 
   const bind = (id, fn) => { const el = appEl.querySelector(id); if (el) el.onclick = fn; };
 
-  // 主页 V4 / V5 交互
+  // 主页 V5 撕纸手账一镜到底物理展开 / 折回交互（340ms 丝滑过渡）
+  const smoothCloseDrawer = () => {
+    const sheet = appEl.querySelector('#v5-sheet');
+    const stg = appEl.querySelector('#scene-stage');
+    const mask = appEl.querySelector('#drawer-mask');
+    moreMenuOpen = false;
+    clearHeroStageAnimDom();
+    if (sheet && sheet.classList.contains('open')) {
+      sheet.classList.remove('open');
+      stg?.classList.remove('drawer-open');
+      mask?.classList.remove('open');
+      setTimeout(() => {
+        drawerOpen = false;
+        render();
+      }, 280);
+    } else {
+      drawerOpen = false;
+      render();
+    }
+  };
+
   bind('#btn-open-drawer', () => {
     if (theaterState) return;
-    drawerOpen = true; moreMenuOpen = false; render();
+    drawerOpen = false;
+    moreMenuOpen = false;
+    render();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        drawerOpen = true;
+        appEl.querySelector('#v5-sheet')?.classList.add('open');
+        appEl.querySelector('#scene-stage')?.classList.add('drawer-open');
+        appEl.querySelector('#drawer-mask')?.classList.add('open');
+      });
+    });
   });
-  bind('#drawer-mask', () => { drawerOpen = false; moreMenuOpen = false; clearHeroStageAnimDom(); render(); });
-  bind('#v5-close', () => { drawerOpen = false; moreMenuOpen = false; clearHeroStageAnimDom(); render(); });
+  bind('#drawer-mask', smoothCloseDrawer);
+  bind('#v5-close', smoothCloseDrawer);
+  bind('#btn-compass-home', openCompassSlipModal);
+  bind('#btn-compass-drawer', openCompassSlipModal);
+  bind('#t-open-compass', openCompassSlipModal);
+
+  appEl.querySelectorAll('[data-subj]').forEach(btn => {
+    btn.onclick = () => {
+      state.selectedSubject = btn.dataset.subj;
+      inspectedId = 'study_self';
+      saveAutoProgress();
+      render();
+    };
+  });
+  bind('#v5-toggle-track', () => {
+    state.examTrack = state.examTrack === 'art' ? 'sci' : 'art';
+    if (state.selectedSubject === 'art' || state.selectedSubject === 'sci') {
+      state.selectedSubject = state.examTrack;
+    }
+    saveAutoProgress();
+    render();
+    showToast(`已切换高考综合卷为【${state.examTrack === 'art' ? '文科综合(300分)' : '理科综合(300分)'}】`);
+  });
+  appEl.querySelectorAll('[data-kid-focus]').forEach(btn => {
+    btn.onclick = () => {
+      state.tutorKidFocus = btn.dataset.kidFocus;
+      inspectedId = 'tutor_kid';
+      saveAutoProgress();
+      render();
+    };
+  });
+  appEl.querySelectorAll('[data-kid-pol]').forEach(btn => {
+    btn.onclick = () => {
+      const ep = ensureChildExamProfile(state);
+      if (ep) {
+        ep.policy = btn.dataset.kidPol;
+        saveAutoProgress();
+        render();
+        showToast(`已切换孩子年度培养方针为「${CHILD_POLICIES[ep.policy]?.name || ''}」`);
+      }
+    };
+  });
   bind('#toast-close', () => {
     if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
     toastMsg = '';
@@ -1189,7 +1391,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
       showToast(res.msg);
       return;
     }
-    petHopSound = res.sound || '♥';
+    petHopSound = res.sound || '呼噜~';
     if (petHopTimer) clearTimeout(petHopTimer);
     saveAutoProgress();
     showToast(res.msg);
@@ -1515,7 +1717,7 @@ function renderIntro() {
             <div class="ft-tape"></div>
             <div class="ft-head">
               <span class="ft-prob">${unlockedSelfPick ? '自由选择模式' : `已抽中 · 现实概率 ${probPct}%`}</span>
-              <div class="ft-name">${pickedOrigin.name}之家</div>
+              <div class="ft-name">${pickedOrigin.name}</div>
             </div>
 
             <div class="ft-grid">
@@ -1558,12 +1760,12 @@ function renderIntro() {
         <div class="wiz-body">
           <div class="build-summary">
             <span class="mini-av">${curSp ? `<img src="${curSp}" alt="头像" />` : ''}</span>
-            <span>${pickedGender === 'female' ? '女主角' : '男主角'} · ${pickedOrigin.name}之家</span>
+            <span>${pickedGender === 'female' ? '女主角' : '男主角'} · ${pickedOrigin.name}</span>
           </div>
 
           <div class="wiz-head">
             <h2>挑选一项初始天赋</h2>
-            <p>从「${pickedOrigin.name}之家」专属天赋池中三选一</p>
+            <p>从「${pickedOrigin.name}」专属天赋池中三选一</p>
           </div>
 
           <div class="talent-list">
@@ -1907,52 +2109,152 @@ function showApprovedEventV3(ev, next, opts = {}) {
   });
 }
 
+// 点击「下一关里程碑路标」弹出的全阶段五项能力与考分预测手账便签
+function openCompassSlipModal() {
+  const cp = getLifeStageCompass(state, draft, PROMO_REQ);
+  const ep = state.age <= 18 ? getStudentExamPreview(state, draft) : null;
+  const capD = state.age <= 18 ? getStageTextbookCap(state.age, state.subTurn) : 100;
+
+  const core5 = [
+    { name: '学识 (文科主轴70%)', val: state.stats.knowledge, use: '决定语文/文综/英语底分、考研(≥70)、辅导娃文科与64岁防骗(≥55)' },
+    { name: '数理 (理科主轴70%)', val: state.stats.numLogic || 20, use: '决定数学/理综/英语底分、理工职场、AI转型加成与辅导娃理科' },
+    { name: '专业 (职场晋升轴)', val: state.stats.pro, use: '升 L2(≥30)/L3(≥50)/L4(≥65·抗35岁裁员)/L5(≥80)，翻倍月薪与退休金' },
+    { name: '表达 (人际与留学)', val: state.stats.expr, use: '9岁选班长(≥28)、18岁海外留学语言线(50/60/70)、婚恋与社交' },
+    { name: '自理理财 (生活财商)', val: state.stats.selfCare, use: '童年免闹肚子(≥30)、看房砍价、黄金避险与64岁识破骗局(≥55)' }
+  ];
+
+  const examTableHtml = ep ? `
+    <div class="compass-exam-box">
+      <div class="ceb-head">
+        <b>当期考卷预测（本学段教材上限 D=${capD}）</b>
+        <span>稳过线建议值：${ep.reqX}/${capD}</span>
+      </div>
+      <div class="ceb-grid">
+        ${ep.paper.rows.map(r => `
+          <div class="ceb-row">
+            <span>${r.label} <small>(满${r.full})</small></span>
+            <span>专项 ${Math.round(r.S)}</span>
+            <b>${r.L}~${r.U}分</b>
+          </div>
+        `).join('')}
+      </div>
+      <div class="ceb-foot">
+        当前总分预测区间：<b>${ep.draftRange[0]} ~ ${ep.draftRange[1]} / ${ep.paper.fullTotal} 分</b>（${ep.statusTag}）
+      </div>
+    </div>
+  ` : '';
+
+  mountOverlay(`
+    <div class="sheet-modal"><div class="sheet-box" style="max-height:84%;display:flex;flex-direction:column;">
+      <div class="sec-head-row" style="margin-bottom:6px;">
+        <span class="sec-title">${pxIcon('pin', 16)} 阶段目标路标与五项指标说明</span>
+        <span class="tag up">${state.age}岁 · 第${state.subTurn}季</span>
+      </div>
+      <div style="flex:1;overflow-y:auto;min-height:0;padding-right:2px;">
+        <div class="mg-stats" style="background:#fdf6e2;border-color:#ecdcb3;margin-bottom:8px;">
+          <b>${cp.kicker}</b><br/>
+          <span>${cp.main}</span>
+          ${cp.subHint ? `<div style="margin-top:3px;color:var(--accent);font-weight:700;">· ${cp.subHint}</div>` : ''}
+        </div>
+        ${examTableHtml}
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${core5.map(it => `
+            <div class="compass-stat-card">
+              <div class="csc-top"><b>${it.name}</b><span class="csc-val">${it.val} / ${state.age <= 18 && (it.name.startsWith('学识') || it.name.startsWith('数理')) ? capD : 100}</span></div>
+              <div class="csc-desc">${it.use}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="mg-actions" style="margin-top:10px;">
+        <button class="btn primary" id="cp-close" style="width:100%;">明白啦 · 继续规划</button>
+      </div>
+    </div></div>
+  `, host => {
+    host.querySelector('#cp-close').onclick = clearOverlay;
+  });
+}
+
 function openGaokaoV3(afterDone) {
   const tsDream = state.dreams?.d_tsinghua;
-  const tsBonus = (tsDream && tsDream.stage >= 2) ? Math.min(5, Math.floor((tsDream.xp || 0) / 12)) : 0;
-  let mod = (state.gaokaoHexBonus || 0) + (hasHex(state, 'hx_tsinghua_link') ? 4 : 0) + tsBonus;
-  if (state.stats.mood >= 60) mod += 2; else if (state.stats.mood < 30) mod -= 3;
-  if (state.stats.fatigue >= getEffectiveFatigueLimit(state)) mod -= 2;
-  if (state.experiences.includes('exp_gaokao_sprint')) mod += 1;
-  if (state.origin.id === 'welloff') mod += 1;
-  const score = clamp(state.stats.knowledge + mod);
+  const gkRep = rollOrGetExamResult(state, 'gk');
+  const score = gkRep.finalScore;
   const hasSprint = state.experiences.includes('exp_gaokao_sprint')
     || getBondTier(state, 'scholar') >= 4
     || ((tsDream?.xp || 0) >= 42);
   const wantsMed = (state.dreams?.d_surgeon?.stage || 0) >= 1;
+  const exprBonus = (state.origin.id === 'middle' ? 5 : 0) + (state.talent.id === 't_vision' ? 5 : 0);
 
   showV3Capture({
     compactViewfinder: true,
-    badge: '18 岁高考 · 人生重要节点',
-    title: `高考出分：${score} 分 · 填报志愿`,
-    photoCaption: `18岁高考 ${score} 分`,
+    badge: `18 岁全国高考 (${gkRep.track === 'art' ? '文科卷' : '理科卷'})`,
+    title: `高考总分：${score} / 750 分 · 填报志愿`,
+    photoCaption: `18岁高考 ${score}分`,
     bodyHtml: `
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px;">可动用留学资金：¥${fmtMoney(state.studyAbroadLeft)}${tsBonus > 0 ? ` · 清北攻坚已加成 +${tsBonus}分` : ''}</p>
-      <div style="display:flex;flex-direction:column;gap:7px;">
+      <div class="gk-score-card">
+        ${gkRep.rows.map(r => `
+          <div class="gk-subj-cell">
+            <span>${r.label}</span>
+            <b>${r.score}</b>
+            <small>/${r.full}</small>
+          </div>
+        `).join('')}
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin:0 0 7px;">
+        预测区间 ${gkRep.minTotal}~${gkRep.maxTotal}分 · 留学池 ¥${fmtMoney(state.studyAbroadLeft)}${hasSprint ? ' · 已享冲刺特招资格(668线)' : ''}
+      </p>
+      <div style="display:flex;flex-direction:column;gap:6px;">
         ${UNIVERSITIES.map(u => {
-          let ok = u.abroad
-            ? state.studyAbroadLeft >= u.cost && state.stats.knowledge >= u.minScore && state.stats.expr >= (u.minExpr - (state.talent.id === 't_vision' ? 10 : 0))
-            : (u.tier === 1 ? score >= 90 && hasSprint : score >= u.minScore);
-          const medBadge = (wantsMed && u.tier <= 3 && !u.abroad) ? ' · 含医学学籍' : '';
-          return `<button class="action-card" data-u="${u.id}" ${ok?'':'disabled'}>
-            <div class="ac-top"><span>${u.name}${medBadge}</span><span>${ok ? '可选' : '未达线'}</span></div>
-            <div class="ac-sub">${u.note}</div>
+          const reqSc = (u.tier === 1 && !u.abroad && hasSprint) ? (u.sprintScore || 668) : u.minScore;
+          const ok = u.abroad
+            ? state.studyAbroadLeft >= u.cost && score >= u.minScore && (state.stats.expr + exprBonus) >= u.minExpr
+            : score >= reqSc;
+          let lackReason = `差${Math.max(1, reqSc - score)}分`;
+          if (!ok && u.abroad) {
+            if (score < u.minScore) lackReason = `差${u.minScore - score}分`;
+            else if (state.studyAbroadLeft < u.cost) lackReason = '留学池不足';
+            else if ((state.stats.expr + exprBonus) < u.minExpr) lackReason = `表达差${u.minExpr - (state.stats.expr + exprBonus)}`;
+          }
+          const medBadge = (wantsMed && u.tier <= 2 && !u.abroad) ? ' · 临床医学本硕博' : '';
+          return `<button class="action-card" style="padding:9px 12px;" data-u="${u.id}" ${ok?'':'disabled'}>
+            <div class="ac-top" style="font-size:13.5px;"><span>${u.name}${medBadge}</span><span>${ok ? '达线可报' : lackReason}</span></div>
+            <div class="ac-sub" style="font-size:11.5px;">${u.note}</div>
           </button>`;
         }).join('')}
+        ${!state.repeatedGaokao && score < 680 ? `
+          <button class="btn secondary" id="gk-repeat" style="margin-top:3px;">不甘心 · 复读高四再战一年（心态 -8，全科保留冲高分）</button>
+        ` : ''}
       </div>
     `,
     onDone: (host, finish) => {
+      const repBtn = host.querySelector('#gk-repeat');
+      if (repBtn) {
+        repBtn.onclick = () => {
+          state.repeatedGaokao = true;
+          state.age = 17;
+          state.subTurn = 3;
+          state.stats.mood = clamp(state.stats.mood - 8);
+          state.examSeed = (state.examSeed || 100000) + 77;
+          delete state.examHistory.gk;
+          saveAutoProgress();
+          finish();
+          showToast('毅然选择复读一年！继承当前全部学识、数理与四科底子再冲刺 3 季！');
+        };
+      }
       host.querySelectorAll('[data-u]').forEach(b => {
         b.onclick = () => {
           const u = UNIVERSITIES.find(x => x.id === b.dataset.u);
-          state.university = u; state.gaokaoDone = true; state.gradAge = 18 + u.years;
+          state.university = u; state.gaokaoDone = true; state.gradAge = (state.repeatedGaokao ? 19 : 18) + u.years;
           if (u.abroad) {
             state.parentSupportLeft = Math.max(0, state.parentSupportLeft - u.cost);
             state.studyAbroadLeft -= u.cost;
           }
-          // 追梦高考联动：主流本科及以上取得临床医学准入学籍；第一档顶尖学府直通清北圆梦！
-          if (u.tier <= 3 && !u.abroad && state.dreams?.d_surgeon) {
+          // 追梦高考联动：985及以上取得本硕博临床医学准入学籍；第一档顶尖学府直通清北圆梦！
+          if (u.tier <= 2 && !u.abroad && state.dreams?.d_surgeon) {
             state.dreams.d_surgeon.medQualified = true;
+          }
+          if (score < 620 && (state.origin.id === 'teacher' || state.origin.id === 'welloff')) {
+            state.stats.mood = clamp(state.stats.mood - (state.origin.id === 'teacher' ? 6 : 5));
           }
           let extraToast = '';
           if (u.id === 'u1' && state.dreams?.d_tsinghua?.stage >= 2) {
@@ -1968,7 +2270,7 @@ function openGaokaoV3(afterDone) {
           }
           finish();
           if (afterDone) afterDone();
-          showToast(`已被「${u.name}」录取！${extraToast}`);
+          showToast(`高考 ${score} 分，已被「${u.name}」录取！${extraToast}`);
         };
       });
     }
@@ -2170,6 +2472,11 @@ function launchArcadeGame(gameId, opts = {}) {
         }
 
         if (firstSTicket) extraTail += ' · 首通 S 奖命运重随券 +1！';
+        if (res.hardSBonus && !state.arcadeFirstS.includes('rhythm_hard_s')) {
+          state.arcadeFirstS.push('rhythm_hard_s');
+          state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
+          extraTail += ' · 挑战困难评S另赠重随券 +1！';
+        }
         saveAutoProgress();
         clearOverlay();
         render();
@@ -2394,7 +2701,7 @@ function openHouseSheet() {
 }
 
 function openGoldSheet() {
-  const noFee = hasHex(state, 'hx_shop_3') || getBondTier(state, 'wealth') >= 4;
+  const noFee = hasHex(state, 'hx_shop_3') || getBondTier(state, 'wealth') >= 4 || state.origin.id === 'merchant' || state.talent.id === 't_biz';
   const buyMult = noFee ? 1.0 : 1.01;
   const sellMult = noFee ? 1.0 : 0.99;
   const hand = Math.round(state.goldPrice * 10 * buyMult);

@@ -1,7 +1,7 @@
 // 《这辈子 2.0》Sprint 4 —— 情境化故事阅读器 V3（去生硬数值胶囊 · 动态氛围视窗 + 角色反应框 + 心境独白 + 淡墨倾向暗章）
 // 严格遵循纯中文零表情符号规范。
 
-import { pxIcon } from './icons.js?v=s40';
+import { pxIcon } from './icons.js?v=s51';
 
 // 1. 根据事件标题与正文智能识别 8 套手绘情境光影插画层（零外部大图体积，纯 SVG + CSS 动态粒子）
 export function detectEventTheme(ev, state) {
@@ -220,9 +220,28 @@ export function formatNarrativeChoiceV3(choice, ev) {
   let whisper = '“跟着眼下的心意走，总会留下点什么。”';
 
   const fullTxt = `${cleanMain} ${rawSub}`;
-  if (/蜡烛|啃完|真题|刷题|复盘|错题|推导|选拔|笔记|图书馆|备考/.test(fullTxt) || (ef.knowledge || 0) >= 2) {
+  const subjStampMap = {
+    chn: '文科·语文',
+    math: '理科·数学',
+    eng: '综合·英语',
+    art: '文科·文综',
+    sci: '理科·理综'
+  };
+  if (ef.subj && subjStampMap[ef.subj]) {
+    ico = 'study';
+    stamp = subjStampMap[ef.subj];
+    whisper = (ef.mood || 0) < 0 || (ef.fatigue || 0) >= 2
+      ? '“趁着心气还在把这门课啃透吧，虽然今晚稍微熬人一点……”'
+      : '“把这门功课的底子打扎实，上了考场心里更有底气。”';
+  } else if (/辅助线|函数|压轴|几何|物理|化学|实验|推导|奥数/.test(fullTxt) || (ef.numLogic || 0) >= 2) {
+    ico = 'study';
+    stamp = '数理精进';
+    whisper = (ef.mood || 0) < 0 || (ef.fatigue || 0) >= 2
+      ? '“顺着逻辑一层层推出来，哪怕费点脑筋也值了。”'
+      : '“把公式背后的理儿想通透，解题一下子顺畅多了。”';
+  } else if (/蜡烛|啃完|真题|刷题|复盘|错题|阅读|摘抄|作文|古诗|背单词|选拔|笔记|图书馆|备考/.test(fullTxt) || (ef.knowledge || 0) >= 2) {
     ico = /蜡烛/.test(cleanMain) ? 'lamp' : 'study';
-    stamp = '课业精进';
+    stamp = '学识精进';
     whisper = (ef.mood || 0) < 0 || (ef.fatigue || 0) >= 2
       ? '“趁着心气还在咬牙顶一下吧，就是今晚稍微熬人一点……”'
       : '“静下心把这道坎琢磨透，心里才觉得踏实。”';
