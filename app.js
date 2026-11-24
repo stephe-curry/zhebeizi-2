@@ -1,16 +1,38 @@
-// 《这辈子 2.0》U6：375×812 微信小程序 9:16 竖屏高保真可交互原型
-// 核心架构：V4 整屏拍立得主界面 ⇄ V5 撕纸排程抽屉 ⇄ V3 关键时刻取景定格
+// 《这辈子 2.0》U6 + Sprint 1：微信小程序 9:16 竖屏高保真可交互原型
+// 核心架构：V4 整屏拍立得 ⇄ V5 撕纸贴纸盘(Combo+季节限定) ⇄ 1.8s过场剧场 ⇄ 命运海克斯 2.0 ⇄ V3 定格
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS, PROMO_REQ
-} from './data.js';
+} from './data.js?v=s25c';
 import {
   clamp, monthlyPmt, getSubStage, getSubStageIndex, getDateStamp, getMacroParams,
-  createInitialState, getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
+  createInitialState, ensureSprint1State, getEffectiveFatigueLimit, getPendingHextechAge,
+  getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
   getTurnSlotBudget, getAvailableActions, previewDraft, executeTurn, getNetWorth, evaluateEnding
-} from './engine.js';
-import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js';
-import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js';
-import { pxIcon, chevDownIcon } from './icons.js';
+} from './engine.js?v=s25c';
+import {
+  HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_CARD_MAP, hasHex, getHexInstance,
+  getHexBondCounts, getBondTier, getNewBondTriggersForCard,
+  rollHextechOffer, pickSingleHextechCard, applyHextechPick
+} from './hextech.js?v=s25c';
+import {
+  SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
+} from './combos.js?v=s25c';
+import {
+  applyEventChoiceEffects
+} from './events.js?v=s25c';
+import {
+  getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
+  TUCK_CARDS_12, TUCK_GOODS, drawSnackCard, buyTuckGood, buyTuckGift,
+  getOrRollHouseListings
+} from './lifeFeatures.js?v=s25c';
+import { applyGracefulPivot, DREAM_CATALOG } from './dreams.js?v=s25c';
+import {
+  triggerHaptic, playComboCollisionVfx, openHextechV4Modal,
+  renderNewAssetsTab, bindNewAssetsInteractions, renderDreamJournalSection
+} from './vfxAndUi.js?v=s25c';
+import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s25c';
+import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s25c';
+import { pxIcon, chevDownIcon } from './icons.js?v=s25c';
 
 const appEl = document.getElementById('app');
 
@@ -24,15 +46,50 @@ let draft = [];
 let toastTimer = null;
 let toastMsg = '';
 let floatPops = []; // 主角身旁彩色上浮飘字
+let floatPopTimer = null;
 let heroHop = false;
 let albumBounce = false;
+// Sprint 1 & 2：人物点击动作反馈、1.8s 连播小剧场 & 舞台萌宠状态
+let heroStageAnim = null;
+let heroAnimTimer = null;
+let theaterState = null; // { beats, idx, combos, timer, finish }
+let comboBurstText = '';
+let petHopSound = '';
+let petHopTimer = null;
 
-// 序幕选型状态
+// 序幕选型状态（0=纯封面, 1=选主角, 2=抽出身, 3=选天赋）
+let introStep = 0;
 let pickedGender = 'male';
 let rerollUsed = false;
 let pickedOrigin = rollOrigin();
 let pickedTalent = pickedOrigin.talents[0].id;
 let unlockedSelfPick = localStorage.getItem('zhebeizi_cleared') === '1';
+
+const AUTO_SAVE_KEY = 'zhebeizi_autosave_v2';
+function saveAutoProgress() {
+  if (!state || state.ended) return;
+  try {
+    localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      state
+    }));
+  } catch (e) { /* 忽略隐私模式配额报错 */ }
+}
+function loadAutoSave() {
+  try {
+    const raw = localStorage.getItem(AUTO_SAVE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const s = parsed?.state;
+    if (!s || s.ended || typeof s.age !== 'number' || !s.stats) return null;
+    return ensureSprint1State(s);
+  } catch (e) {
+    return null;
+  }
+}
+function clearAutoSave() {
+  try { localStorage.removeItem(AUTO_SAVE_KEY); } catch (e) {}
+}
 
 function rollOrigin() {
   const r = Math.random();
@@ -55,7 +112,7 @@ function getBgKey(age) {
 }
 
 function getCurrentHeroBubble(s) {
-  if (s.stats.fatigue >= s.origin.fatigueLimit) return 'sweat';
+  if (s.stats.fatigue >= getEffectiveFatigueLimit(s)) return 'sweat';
   if (s.stats.mood < 35) return 'stress';
   if (s.pubStreak > 0) return 'wine';
   if (s.age >= 60 && !s.elderCircle && !(s.relations.partner?.married)) return 'leaf';
@@ -75,17 +132,13 @@ function getSeasonTitle(s) {
 }
 
 function getSeasonMood(s) {
-  return s.stats.fatigue >= s.origin.fatigueLimit ? '有点透支了，注意喘口气'
+  return s.stats.fatigue >= getEffectiveFatigueLimit(s) ? '有点透支了，注意喘口气'
     : s.stats.mood >= 75 ? '阳光正好，心里踏实'
     : s.age <= 12 ? '放学后的风很温柔'
     : s.age <= 18 ? '黑板上的倒计时又少了一天'
     : s.age <= 35 ? '在城市里慢慢扎下根'
     : s.age <= 50 ? '扛起生活，也别忘了自己'
     : '慢下来，好好享受眼前的日子';
-}
-
-function trendIcon(t) {
-  return t === 'hot' ? '🔥↑↑' : t === 'up' ? '📈↑' : t === 'down' ? '📉↓' : '➡️平';
 }
 
 function getGoalMeta(s) {
@@ -139,12 +192,21 @@ const DOMAIN_STYLE = {
 
 function getActionMeta(a, s) {
   const ds = DOMAIN_STYLE[a.cat] || DOMAIN_STYLE['1.成长与学习'];
+  if (a.seasonal) {
+    return { wellBg: '#fff2cc', slotBg: '#fce7ad', slotFg: '#8f580a', ico: a.ico || 'spark', short: a.short || a.name.slice(0, 4) };
+  }
+  if (a.isDreamAction) {
+    return { wellBg: a.wellBg || ds.wellBg, slotBg: '#ebe2f8', slotFg: '#6f50a8', ico: a.ico || 'dream', short: a.short || a.name.slice(0, 4) };
+  }
   const map = {
     study_self:        { ico: 'study',    short: '课业自习' },
     study_tutor:       { ico: 'tutor',    short: '付费补习' },
     gaokao_sprint:     { ico: 'sprint',   short: '考前冲刺' },
+    uni_study:         { ico: 'study',    short: '泡馆修学' },
+    uni_intern:        { ico: 'work',     short: '实习项目' },
+    uni_parttime:      { ico: 'tutor',    short: '家教兼职' },
     pro_self:          { ico: 'study',    short: '专业自学' },
-    pro_course:        { ico: 'tutor',    short: '项目/AI' },
+    pro_course:        { ico: 'bulb',     short: '导师项目' },
     elder_uni:         { ico: 'tutor',    short: '老年大学' },
     chores:            { ico: 'coin',     short: s.age <= 12 ? '做家务' : '假期兼职' },
     overtime:          { ico: 'work',     short: '加班副业' },
@@ -155,7 +217,7 @@ function getActionMeta(a, s) {
     square_dance:      { ico: 'dance',    short: '跳广场舞' },
     tutor_kid:         { ico: 'study',    short: '辅导作业' },
     play_kid:          { ico: 'baby',     short: '陪娃玩' },
-    train_dream:       { ico: 'dream',    short: s.activeDreams.length ? '追梦专练' : '梦想启蒙' },
+    train_dream:       { ico: 'dream',    short: '追梦专练' },
     exercise:          { ico: 'exercise', short: s.age >= 51 ? '太极散步' : '体育锻炼' },
     rest:              { ico: 'rest',     short: '完整休息' },
     pub_drink:         { ico: 'pub',      short: '小酒馆' },
@@ -169,7 +231,7 @@ function getActionMeta(a, s) {
 function getRecommendedActionMap(s, actions) {
   const rec = {};
   const has = id => actions.some(a => a.id === id && !a.disabled);
-  if (s.stats.fatigue >= s.origin.fatigueLimit - 2 || s.stats.mood < 40) {
+  if (s.stats.fatigue >= getEffectiveFatigueLimit(s) - 2 || s.stats.mood < 40) {
     if (has('rest')) rec.rest = '回血';
   }
   if (s.stats.health < 45 && has('exercise')) {
@@ -202,16 +264,19 @@ function buildSmartDraft(s, actions, budget) {
     return true;
   };
 
-  if (s.stats.fatigue >= s.origin.fatigueLimit - 2 || s.stats.mood < 42) tryPush('rest');
+  if (s.stats.fatigue >= getEffectiveFatigueLimit(s) - 2 || s.stats.mood < 42) tryPush('rest');
   if (s.stats.health < 50) tryPush('exercise');
 
+  const activeDreamAct = actions.find(a => a.isDreamAction && !a.disabled)?.id || null;
   const stagePriority = s.age <= 12
-    ? ['chores', 'study_self', 'accompany_friend', 'train_dream', 'accompany_parents', 'exercise']
+    ? ['chores', 'study_self', 'accompany_friend', activeDreamAct, 'accompany_parents', 'exercise'].filter(Boolean)
     : s.age <= 18
-      ? ['gaokao_sprint', 'study_self', 'accompany_friend', 'train_dream', 'rest', 'chores']
-      : s.age <= 50
-        ? ['pro_course', 'pro_self', 'date_partner', 'play_kid', 'overtime', 'exercise', 'accompany_parents', 'rest']
-        : ['square_dance', 'exercise', 'elder_uni', 'accompany_friend', 'train_dream', 'rest'];
+      ? ['gaokao_sprint', 'study_self', activeDreamAct, 'accompany_friend', 'rest', 'chores'].filter(Boolean)
+      : s.age < s.gradAge
+        ? ['uni_intern', 'uni_study', activeDreamAct, 'uni_parttime', 'accompany_friend', 'rest'].filter(Boolean)
+        : s.age <= 50
+          ? ['pro_course', 'pro_self', activeDreamAct, 'date_partner', 'play_kid', 'overtime', 'exercise', 'accompany_parents', 'rest'].filter(Boolean)
+          : ['square_dance', 'exercise', 'elder_uni', 'accompany_friend', 'rest'];
 
   for (const id of stagePriority) {
     if (picks.length >= budget.available) break;
@@ -224,18 +289,103 @@ function buildSmartDraft(s, actions, budget) {
   return picks;
 }
 
+function clearHeroStageAnimDom() {
+  heroStageAnim = null;
+  if (heroAnimTimer) { clearTimeout(heroAnimTimer); heroAnimTimer = null; }
+  const anchor = document.getElementById('hero-tap');
+  if (anchor) {
+    anchor.className = 'hero-anchor';
+    anchor.querySelectorAll('.hero-speech, .hero-prop, .hero-prop-sub').forEach(el => el.remove());
+  }
+  const light = document.getElementById('stage-light');
+  if (light) light.className = 'stage-light';
+}
+
+function triggerHeroActionPreview(actionId, duration = 1350) {
+  if (!state) return;
+  if (heroAnimTimer) { clearTimeout(heroAnimTimer); heroAnimTimer = null; }
+  heroStageAnim = getActionAnimSpec(actionId, state);
+  if (duration > 0) {
+    heroAnimTimer = setTimeout(() => {
+      if (!theaterState) clearHeroStageAnimDom();
+    }, duration);
+  }
+}
+
+function stopTheater(invokeDone = false) {
+  if (!theaterState) return;
+  const st = theaterState;
+  if (st.timer) clearTimeout(st.timer);
+  theaterState = null;
+  comboBurstText = '';
+  clearHeroStageAnimDom();
+  if (invokeDone && st.onFinish) st.onFinish();
+}
+
+function playTurnTheater(res, onFinish) {
+  stopTheater(false);
+  const beats = res.stepBeats || [];
+  if (!beats.length) return onFinish();
+  const combos = res.combosTriggered || [];
+
+  theaterState = { beats, idx: 0, combos, timer: null, onFinish };
+
+  const runBeat = (i) => {
+    if (!theaterState) return;
+    if (i >= beats.length) {
+      if (combos.length > 0 && !theaterState.comboShown) {
+        theaterState.comboShown = true;
+        const names = combos.map(c => c.name).join(' · ');
+        comboBurstText = names;
+        heroStageAnim = { anim: 'anim-celebrate', prop: 'combo', subProp: 'spark', light: 'light-sun', bubble: '好搭配！' };
+        floatPops = [{ text: names, k: 'gold' }];
+        render();
+        const firstNew = res.newlyDiscoveredCombos?.[0];
+        playComboCollisionVfx(firstNew || combos[0], Boolean(firstNew), getAvailableActions(state), getActionMeta, state);
+        theaterState.timer = setTimeout(() => {
+          stopTheater(false);
+          floatPops = [];
+          render();
+          onFinish();
+        }, firstNew ? 920 : 620);
+        return;
+      }
+      stopTheater(false);
+      floatPops = [];
+      render();
+      onFinish();
+      return;
+    }
+
+    theaterState.idx = i;
+    const b = beats[i];
+    heroStageAnim = getActionAnimSpec(b.id, state);
+    floatPops = [{ text: b.text, k: b.kind || 'pos' }];
+    render();
+    theaterState.timer = setTimeout(() => runBeat(i + 1), 430);
+  };
+
+  runBeat(0);
+}
+
 function triggerFloatPops(summaryList) {
+  if (floatPopTimer) clearTimeout(floatPopTimer);
   const pops = [];
   for (const line of summaryList.slice(0, 4)) {
-    const k = /现金 \+|零花钱 \+|环游|梦想/.test(line) ? 'gold'
+    const k = /现金 \+|零花钱 \+|环游|梦想|连携|重随/.test(line) ? 'gold'
       : /透支|孤独|健康 -|心态 -/.test(line) ? 'neg' : 'pos';
     // 截短为极清爽的飘字短语
     const short = line.replace(/^.*?：/, '').split('，')[0].slice(0, 14);
     pops.push({ text: short, k });
   }
-  if (!pops.length) pops.push({ text: '安稳度过这一季', k: 'pos' });
+  if (!pops.length) pops.push({ text: '安稳度过这一季', k });
   floatPops = pops;
-  setTimeout(() => { floatPops = []; render(); }, 1650);
+  floatPopTimer = setTimeout(() => {
+    floatPops = [];
+    floatPopTimer = null;
+    // 仅清理飘字层 DOM，绝不触发整页 render() 误清已打开的关键时刻弹窗
+    document.querySelectorAll('.float-layer').forEach(el => el.remove());
+  }, 1650);
 }
 
 function showToast(text) {
@@ -271,7 +421,9 @@ function mountOverlay(html, bind) {
   const frame = document.querySelector('.phone-frame');
   if (!frame) return;
   if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; toastMsg = ''; }
-  document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
+  if (floatPopTimer) { clearTimeout(floatPopTimer); floatPopTimer = null; floatPops = []; }
+  if (heroAnimTimer) { clearTimeout(heroAnimTimer); heroAnimTimer = null; }
+  document.querySelectorAll('.toast-ribbon, .float-layer').forEach(el => el.remove());
   clearOverlay();
   const div = document.createElement('div');
   div.id = 'phone-overlay-host';
@@ -283,10 +435,11 @@ function mountOverlay(html, bind) {
 function clearOverlay() {
   const old = document.getElementById('phone-overlay-host');
   if (old) old.remove();
+  saveAutoProgress();
 }
 
 // V3 关键时刻取景器定格弹窗（带四角合拢 + 暖白快门轻闪 + 35mm 齿孔 + 存入相册）
-function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode = false }) {
+function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode = false, compactViewfinder = false }) {
   const bgKey = getBgKey(state.age);
   const stageIdx = getSubStageIndex(state.age);
   const stamp = getDateStamp(state.age, state.subTurn);
@@ -296,24 +449,28 @@ function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode
     state.albumPhotos.push({ age: state.age, stamp, title: photoCaption, stageIdx, bg: bgKey });
   }
 
+  const isCompact = storyMode || compactViewfinder;
   const headHtml = storyMode
     ? `<div class="story-head-meta">
          <span class="story-chapter">${pxIcon('film', 13)} ${badge || '记忆定格'}</span>
          <span class="story-stamp-mini">${stamp} · ${state.age}岁</span>
        </div>
        <h3 class="story-title">${title}</h3>`
-    : `<div><span class="tag hot">${badge || '关键时刻定格'}</span></div>
-       <h3 style="margin:0;font-size:17.5px;">${title}</h3>`;
+    : `<div class="story-head-meta">
+         <span class="story-chapter">${pxIcon('film', 13)} ${badge || '关键时刻定格'}</span>
+         <span class="story-stamp-mini">${stamp} · ${state.age}岁</span>
+       </div>
+       <h3 class="story-title">${title}</h3>`;
 
   mountOverlay(`
     <div class="v3-overlay">
-      <div class="v3-viewfinder" style="${storyMode ? 'height:35%;' : ''}">
+      <div class="v3-viewfinder ${isCompact ? 'compact' : ''}">
         <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
         <div class="film-overlay"></div>
         <div class="shutter-flash"></div>
         <div class="v3-brackets"><span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span></div>
-        <div class="hero-anchor" style="bottom:${storyMode ? '5%' : '8%'};">
-          ${spUrl ? `<img class="hero-sprite" style="height:${storyMode ? '118px' : '148px'};" src="${spUrl}" />` : ''}
+        <div class="hero-anchor" style="bottom:${isCompact ? '5%' : '8%'};">
+          ${spUrl ? `<img class="hero-sprite" style="height:${isCompact ? '106px' : '142px'};" src="${spUrl}" />` : ''}
         </div>
         <div class="date-stamp">${stamp}</div>
       </div>
@@ -329,7 +486,10 @@ function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode
       if (photoCaption) {
         albumBounce = true;
         render();
-        setTimeout(() => { albumBounce = false; render(); }, 460);
+        setTimeout(() => {
+          albumBounce = false;
+          document.querySelector('.nav-tab.bounce')?.classList.remove('bounce');
+        }, 460);
       } else {
         render();
       }
@@ -346,6 +506,32 @@ async function initSpritesAndRender() {
   } catch (e) {
     console.warn('Sprite load fallback:', e);
   }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const preset = params.get('preset');
+    if (preset === 'fresh') {
+      clearAutoSave();
+      state = null;
+      introStep = 0;
+    } else if (preset === 'adult32') {
+      const s = createInitialState('welloff', 't_book', 'male');
+      s.age = 32; s.subTurn = 2; s.totalTurns = 48; s.gradAge = 22; s.gaokaoDone = true;
+      s.university = UNIVERSITIES[1]; s.track = TRACKS[1]; s.jobLevel = 3; s.cityTier = 1;
+      s.cash = 268000; s.goldGrams = 40; s.goldPrice = 865; s.goldAvgCost = 755;
+      s.goldHistory = [730, 755, 780, 815, 840, 865];
+      s.houseIdxHistory = [98, 103, 108, 114, 121, 128];
+      s.house = { id: 'h1_mid', tier: '中产', name: '阳光改善三居', grid: 6, value: 2200000, basePrice: 2000000, loan: 1120000, pmtMo: 6150, buffActive: true };
+      s.hasCar = true; s.emoBuyThisTurn = true;
+      s.pet = { id: 'cat', name: '橘座', species: '小橘猫', ico: 'petCat', alive: true, ageYears: 4, bond: 82 };
+      s.items = ['8岁悠悠球', '《慢一点回家》小样磁带', '橘座的小铃铛'];
+      s.dreams.d_singer.stage = 3; s.dreams.d_singer.xp = 68; s.dreams.d_singer.trains = 14; s.dreams.d_singer.songsCount = 3;
+      s.dreamSkill = 68;
+      s.hexCards = [{ id: 'hx_singer_royalty', acquiredAge: 22, stacks: 3 }, { id: 'hx_duo_passion', acquiredAge: 30, stacks: 0 }];
+      s.hexTriggeredAges = [6, 12, 18, 22, 30];
+      state = s;
+      activeTab = 'assets';
+    }
+  } catch (_) {}
   render();
 }
 
@@ -372,18 +558,28 @@ function render() {
   let cornerSticker = null;
   if (state.age <= 12 && state.flipGameThisYear < 1 && tCount >= 1) {
     cornerSticker = { id: 'flip', ico: 'card', label: '课间翻卡博弈' };
+  } else if (state.age <= 18 && (state.tuckUnlocked || state.age >= 7)) {
+    cornerSticker = { id: 'tuck', ico: 'shop', label: '逛校门口小卖部' };
   } else if (state.age >= 22 && !state.house && state.cash + state.parentSupportLeft >= 150000) {
-    cornerSticker = { id: 'house', ico: 'home', label: '够首付安家了' };
+    cornerSticker = { id: 'house', ico: 'home', label: '周末实景看房' };
   } else if (state.age >= 55) {
     cornerSticker = { id: 'gomoku', ico: 'chess', label: '公园石桌杀一盘' };
   }
 
   const mp = getMacroParams(state.age);
+  ensureSprint1State(state);
+  const pendingHexAge = getPendingHextechAge(state);
+  const hexCount = state.hexCards.length;
+  const stageHs = (!drawerOpen && !theaterState) ? getOrRollStageHotspot(state) : null;
+  const petStage = (state.pet && state.pet.alive) ? getPetLifeStage(state.pet) : null;
   let bodyHtml = '';
   if (activeTab === 'home') {
     const livePrev = drawerOpen && draft.length > 0 ? previewDraft(state, draft) : null;
     const fmtDelta = (v, label = '') => v > 0 ? `<span class="pill-delta pos">${label}+${v}</span>` : v < 0 ? `<span class="pill-delta neg">${label}-${Math.abs(v)}</span>` : '';
-    const ctaText = draft.length > 0 ? `继续安排 (${draft.length}/${budget.available})` : getMainCtaText(state);
+    const ctaText = theaterState ? '本季手账回放中…' : (draft.length > 0 ? `继续安排 (${draft.length}/${budget.available})` : getMainCtaText(state));
+    const animCls = heroStageAnim ? heroStageAnim.anim : (heroHop ? 'hop' : '');
+    const lightCls = heroStageAnim?.light ? `on ${heroStageAnim.light}` : '';
+    const theaterBeat = theaterState ? theaterState.beats[theaterState.idx] : null;
     bodyHtml = `
       <div class="v4-wrapper">
         <!-- L1 顶部统一 4 列直白状态栏（排程时下方浮出实时红绿变动角标） -->
@@ -411,20 +607,57 @@ function render() {
           </div>
         </div>
 
-        <!-- L2 全屏轻像素沉浸舞台 -->
-        <div class="scene-stage ${drawerOpen ? 'drawer-open' : ''}">
+        <!-- L2 全屏轻像素沉浸舞台（含实时动作反馈、道具贴片、主屏萌宠、闪光彩蛋与 1.8s 连播小剧场） -->
+        <div class="scene-stage ${drawerOpen ? 'drawer-open' : ''}" id="scene-stage">
           <img class="scene-bg" src="./assets/bg/${bgKey}.jpg" />
           <div class="film-overlay"></div>
           <div class="film-lightleak"></div>
-          ${!drawerOpen ? `<button class="news-btn" id="btn-news">${pxIcon('news', 15)} 时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>` : ''}
-          <div class="hero-anchor ${heroHop ? 'hop' : ''}" id="hero-tap">
-            ${bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : ''}
+          <div class="stage-light ${lightCls}" id="stage-light"></div>
+          ${!drawerOpen && !theaterState ? `
+            <button class="hex-btn ${pendingHexAge ? 'glow' : ''}" id="btn-hex-deck">
+              ${pxIcon('hex', 15)}
+              <span>${pendingHexAge ? '觉醒海克斯!' : '海克斯'}</span>
+              <span class="hex-cnt">${hexCount}/7</span>
+              ${pendingHexAge ? '<span class="hex-dot"></span>' : ''}
+            </button>
+            <button class="news-btn" id="btn-news">${pxIcon('news', 15)} 时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
+            ${(state.statusBuffs || []).length ? `
+              <div class="buff-strip">
+                ${state.statusBuffs.map(bf => `<span class="buff-pill ${bf.type === 'neg' ? 'neg' : ''}">${bf.name} ${bf.turns}季</span>`).join('')}
+              </div>
+            ` : ''}
+          ` : ''}
+          ${stageHs && !stageHs.claimed ? `
+            <button class="stage-hotspot" id="btn-stage-hs" style="left:${stageHs.left}%;bottom:${stageHs.bottom}%;" title="${stageHs.label}">
+              ${pxIcon(stageHs.ico, 17)}
+              <span class="hs-lbl">${stageHs.label}</span>
+            </button>
+          ` : ''}
+          ${petStage && !drawerOpen ? `
+            <button class="stage-pet ${petHopSound ? 'pet-hop' : ''}" id="btn-stage-pet" title="摸一摸${state.pet.name}">
+              ${petHopSound ? `<span class="pet-heart">♥ ${petHopSound}</span>` : ''}
+              <span class="pet-body" style="transform:scale(${petStage.scale});">${pxIcon(state.pet.ico, 38)}</span>
+              <span class="pet-tag">${state.pet.name}</span>
+            </button>
+          ` : ''}
+          <div class="hero-anchor ${animCls}" id="hero-tap">
+            ${heroStageAnim?.bubble ? `<div class="hero-speech">${heroStageAnim.bubble}</div>` : (bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : '')}
+            ${heroStageAnim?.prop ? `<div class="hero-prop">${pxIcon(heroStageAnim.prop, 20)}</div>` : ''}
+            ${heroStageAnim?.subProp ? `<div class="hero-prop-sub">${pxIcon(heroStageAnim.subProp, 14)}</div>` : ''}
             ${spUrl ? `<img class="hero-sprite" src="${spUrl}" />` : ''}
             <div class="hero-shadow"></div>
           </div>
+          ${comboBurstText ? `<div class="combo-burst">${pxIcon('combo', 15)} ${comboBurstText}</div>` : ''}
           ${floatPops.length ? `<div class="float-layer">${floatPops.map((p, idx) => `<div class="float-pop ${p.k}" style="animation-delay:${idx*140}ms;left:${48 + (idx%2===0?-8:8)}%;">${p.text}</div>`).join('')}</div>` : ''}
-          ${!drawerOpen && cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}
-          <div class="date-stamp">${stamp}</div>
+          ${theaterState ? `
+            <div class="theater-bar" id="theater-skip">
+              <div class="theater-dots">
+                ${theaterState.beats.map((_, i) => `<i class="${i < theaterState.idx ? 'done' : i === theaterState.idx ? 'now' : ''}"></i>`).join('')}
+              </div>
+              <span class="theater-txt">${theaterState.comboShown ? '连携碰撞达成！' : `${theaterBeat?.name || ''} · ${theaterBeat?.text || ''}`}</span>
+              <span class="theater-skip">轻点跳过 ›</span>
+            </div>
+          ` : `${!drawerOpen && cornerSticker ? `<button class="corner-sticker" id="corner-btn">${pxIcon(cornerSticker.ico, 15)} ${cornerSticker.label}</button>` : ''}<div class="date-stamp">${stamp}</div>`}
         </div>
 
         <!-- L3 拍立得厚白边：单行标题 + 柔和副标题 + 季节进度点 + 唯一主按钮 -->
@@ -435,10 +668,10 @@ function render() {
           <div class="season-mood">${getSeasonMood(state)}</div>
           <div class="season-dots">
             ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
-            <span class="season-dots-label">本年第 ${state.subTurn}/${mp.subTurns} 季</span>
+            <span class="season-dots-label">本年第 ${state.subTurn}/${mp.subTurns} 季${state.age <= 18 && state.subTurn === 2 ? ' · 暑假限定' : ''}</span>
           </div>
           ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
-          <button class="cta-main" id="btn-open-drawer">${ctaText}</button>
+          <button class="cta-main" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText}</button>
         </div>
 
         <!-- 暖白手账纸条轻提示 -->
@@ -577,13 +810,13 @@ function renderV5Drawer(actions, budget) {
           <div class="v5-more-menu" id="v5-more-menu">
             <button class="v5-more-item" id="v5-smart-menu">${pxIcon('spark', 13)} 智能帮我安排</button>
             <button class="v5-more-item" id="v5-reuse-menu" ${state.lastDraft.length ? '' : 'disabled'}>↺ 沿用上次排程</button>
-            <button class="v5-more-item" id="v5-tpl">${state.templates.balance.length ? '📋 载入我的模板' : '📌 存为我的模板'}</button>
+            <button class="v5-more-item" id="v5-tpl">${state.templates.balance.length ? '载入我的模板' : '存为我的模板'}</button>
             <button class="v5-more-item danger" id="v5-clear" ${draft.length ? '' : 'disabled'}>✕ 清空当前槽位</button>
           </div>
         ` : ''}
       </div>
 
-      <div class="v5-slots ${budget.available >= 5 ? 'five' : ''}" style="grid-template-columns: repeat(${Math.min(5, budget.available)}, 1fr);">
+      <div class="v5-slots ${budget.available >= 5 ? 'five' : ''}" style="grid-template-columns: repeat(${Math.min(7, budget.available)}, 1fr);">
         ${draft.map((id, i) => {
           const a = actions.find(x => x.id === id);
           const m = a ? getActionMeta(a, state) : { short: id, slotBg: 'var(--accent-soft)', slotFg: 'var(--accent)' };
@@ -598,177 +831,55 @@ function renderV5Drawer(actions, budget) {
         ${goal.pct !== null ? `<span class="gn-bar"><i style="width:${goal.pct}%"></i></span><span class="gn-num">${goal.label}</span>` : ''}
       </div>
 
+      <div class="combo-live-strip ${prev.combos.length ? 'lit' : ''}">
+        ${pxIcon('combo', 13)}
+        <span class="cb-txt">${prev.combos.length
+          ? `已激活连携：${prev.combos.map(c => c.name).join(' + ')}${hasHex(state, 'hx_time_master') ? ' (翻倍)' : ''}`
+          : `发金光贴纸可与已排槽位撞出连携（每新解锁 3 条送重随券）`}</span>
+        <button class="combo-codex-btn" id="btn-open-codex">图鉴 ${state.discoveredCombos.length}/${SCHEDULE_COMBOS.length}</button>
+      </div>
+
       ${inspectorHtml}
 
       <div class="v5-cards">
         <div class="sticker-grid ${actions.length > 8 ? 'compact' : ''}">
-          ${actions.map(a => {
-            const m = getActionMeta(a, state);
-            const cnt = slotCounts[a.id] || 0;
-            const rec = recMap[a.id];
-            const isFocus = inspected && inspected.id === a.id;
-            const pulseFirst = isFirstTurn && draft.length === 0 && a.id === recFirstId;
-            return `
-              <button class="stk ${isFocus ? 'focus' : ''} ${cnt ? 'slotted' : ''} ${a.disabled ? 'is-disabled' : ''} ${pulseFirst ? 'guide-pulse' : ''}" data-sticker="${a.id}">
-                ${rec ? `<span class="stk-rec">${rec}</span>` : ''}
-                ${a.costCash > 0 ? `<span class="stk-price ${rec ? 'under-rec' : ''}">¥${fmtMoney(a.costCash)}</span>` : ''}
-                ${cnt > 0 ? `<span class="stk-cnt">×${cnt}</span>` : ''}
-                <div class="stk-well" style="--well-bg:${m.wellBg};">${pxIcon(m.ico, 23)}</div>
-                <span class="stk-nm">${m.short}</span>
-              </button>
-            `;
-          }).join('')}
+          ${(() => {
+            const partnerIds = draft.length < budget.available
+              ? getComboPartnerIds(draft, actions.filter(x => !x.disabled).map(x => x.id), state)
+              : new Set();
+            return actions.map(a => {
+              const m = getActionMeta(a, state);
+              const cnt = slotCounts[a.id] || 0;
+              const rec = recMap[a.id];
+              const isPartner = partnerIds.has(a.id);
+              const leftBadge = a.seasonal ? (a.badge || '限定') : (isPartner ? '可连携' : rec);
+              const isFocus = inspected && inspected.id === a.id;
+              const pulseFirst = isFirstTurn && draft.length === 0 && a.id === recFirstId;
+              return `
+                <button class="stk ${a.seasonal ? 'seasonal' : ''} ${isPartner ? 'combo-partner' : ''} ${isFocus ? 'focus' : ''} ${cnt ? 'slotted' : ''} ${a.disabled ? 'is-disabled' : ''} ${pulseFirst ? 'guide-pulse' : ''}" data-sticker="${a.id}">
+                  ${leftBadge ? `<span class="stk-rec ${a.seasonal ? 'sea-badge' : isPartner ? 'partner-badge' : ''}">${leftBadge}</span>` : ''}
+                  ${a.costCash > 0 ? `<span class="stk-price ${leftBadge ? 'under-rec' : ''}">¥${fmtMoney(a.costCash)}</span>` : ''}
+                  ${cnt > 0 ? `<span class="stk-cnt">×${cnt}</span>` : ''}
+                  <div class="stk-well" style="--well-bg:${m.wellBg};">${pxIcon(m.ico, 23)}</div>
+                  <span class="stk-nm">${m.short}</span>
+                </button>
+              `;
+            }).join('');
+          })()}
         </div>
-        <div class="v5-hint-line">${isFirstTurn ? '单点贴纸即排入 · 点上方槽位 ✕ 随时撤销 · 点右上角可收起回主页' : '单点即排入 · 排满后点贴纸可对比详情或替换 · 右上角 ∨ 收起回主页'}</div>
+        <div class="v5-hint-line">${isFirstTurn ? '单点贴纸即排入并预览主角动作 · 点槽位 ✕ 可撤 · 右上 ∨ 收起' : '亮金边「可连携」贴纸入槽即可碰撞合成 · 右上 ∨ 收起'}</div>
       </div>
 
       <div class="v5-footer">
-        ${prev.fatigueWarn ? `<div class="v5-warn">⚠️ 本季安排过满（疲劳将达 ${prev.endFatigue}/${state.origin.fatigueLimit}），会额外损耗健康</div>` : ''}
+        ${prev.fatigueWarn ? `<div class="v5-warn">注意：本季安排偏满（疲劳将达 ${prev.endFatigue}/${prev.fatigueLimit}），会额外扣 1 点健康</div>` : ''}
         <button class="btn-go ${isFirstTurn && isFull ? 'ready-pulse' : ''}" id="v5-exec">开始这一季 → ${goPillHtml}</button>
       </div>
     </div>
   `;
 }
 
-function trendWord(t) {
-  return t === 'hot' ? '强势走高' : t === 'up' ? '温和回暖' : t === 'down' ? '回调横盘' : '整体平稳';
-}
-
 function renderAssetsTab() {
-  const nw = getNetWorth(state);
-  const era = getCurrentEra(state);
-  const sal = getCurrentMonthlySalary(state);
-  const stamp = getDateStamp(state.age, state.subTurn);
-  const toyLabel = state.gender === 'female' ? '8岁芭比娃娃' : '8岁悠悠球';
-
-  // 木格旧物盒固定 3 格（含已收旧物 + 待收集预告槽）
-  const keepsakes = state.items.map(name => ({
-    name,
-    ico: /芭比|娃娃/.test(name) ? 'doll' : /悠悠球/.test(name) ? 'yoyo' : 'dream',
-    tag: state.house?.buffActive ? '已上墙 Buff' : '已珍藏',
-    filled: true
-  }));
-  const emptyLabels = [
-    state.age < 8 ? `8岁节点·${toyLabel.slice(2)}` : '童年旧物格',
-    '人生纪念格',
-    '心愿留痕格'
-  ];
-  while (keepsakes.length < 3) {
-    keepsakes.push({ name: emptyLabels[keepsakes.length], filled: false });
-  }
-
-  const showFinanceTickets = state.age >= 18;
-
-  return `
-    <div class="tab-page">
-      <!-- 怀旧家庭储蓄存折 -->
-      <div class="passbook">
-        <div class="passbook-top">
-          <div class="passbook-brand">
-            ${pxIcon('passbook', 20)}
-            <div>
-              <b>家庭活期存折</b>
-              <small>NO.${stamp.replace('.', '-')} · ${state.origin.name}起步</small>
-            </div>
-          </div>
-          <span class="passbook-city">${CITIES[state.cityTier].name.slice(0, 4)}</span>
-        </div>
-        <div class="passbook-body">
-          <div class="pb-balances">
-            <div class="pb-cell">
-              <span>可用现金</span>
-              <strong>¥${fmtMoney(state.cash)}</strong>
-            </div>
-            <div class="pb-cell">
-              <span>家庭净资产</span>
-              <strong class="net">¥${fmtMoney(nw)}</strong>
-            </div>
-          </div>
-          <div class="pb-ledger-lines">
-            ${sal > 0 ? `<div class="pb-line"><span class="lb">税后月薪（L${state.jobLevel}）</span><b>¥${sal.toLocaleString()}/月</b></div>` : ''}
-            ${state.retired ? `<div class="pb-line"><span class="lb">月度退休金</span><b>¥${state.pensionMo.toLocaleString()}/月</b></div>` : ''}
-            ${state.goldGrams > 0 ? `<div class="pb-line"><span class="lb">黄金持仓（${Math.round(state.goldGrams)}g）</span><b>约 ¥${fmtMoney(state.goldGrams * state.goldPrice)}</b></div>` : ''}
-            ${state.debt > 0 ? `<div class="pb-line debt"><span>应付欠款（自动扣还）</span><b>-¥${fmtMoney(state.debt)}</b></div>` : ''}
-            ${!sal && !state.retired && !state.debt && state.goldGrams <= 0 ? `<div class="pb-line"><span class="lb">理财年化参考</span><b>${(era.finRate * 100).toFixed(1)}% · ${era.name}</b></div>` : ''}
-          </div>
-          <div class="pb-trends">
-            <span class="trend-pill ${era.houseTrend}">楼市：${trendWord(era.houseTrend)}</span>
-            <span class="trend-pill ${era.goldTrend}">金价 ¥${state.goldPrice}/g · ${trendWord(era.goldTrend)}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 安家与小家手账卡 -->
-      <div class="deed-card">
-        <div class="sec-head-row">
-          <span class="sec-title">${pxIcon('home', 17)} 安家与小家空间</span>
-          ${state.house ? `<span class="tag up">${state.house.grid}×${state.house.grid} 网格</span>` : `<span class="tag">${state.age < 19 ? '成年解锁' : '租住/住家'}</span>`}
-        </div>
-        <p class="deed-desc">
-          ${state.house
-            ? `${state.house.name} · 估值 ¥${fmtMoney(state.house.value)} · 余贷 ¥${fmtMoney(state.house.loan)}${state.house.buffActive ? ' · 旧物已上墙' : ''}`
-            : state.age < 19
-              ? '毕业攒够首付后可购置小家，解锁空间拼图并把童年旧物挂上墙。'
-              : '当前暂未置业；买房后解锁空间拼图，可将 8 岁旧物上墙激活永久 Buff。'}
-        </p>
-        ${(state.age >= 19) ? `
-          <div class="pill-actions">
-            ${state.age >= state.gradAge ? `<button class="pill-btn primary" id="t-house">${pxIcon('home', 14)} 房产买卖</button>` : ''}
-            <button class="pill-btn soft" id="t-puzzle">${pxIcon('spark', 14)} 布置小家</button>
-            ${state.age >= state.gradAge ? `<button class="pill-btn" id="t-city">${pxIcon('trip', 14)} 中途换城</button>` : ''}
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- 理财与零花票券区 -->
-      ${showFinanceTickets ? `
-        <div class="deed-card">
-          <div class="sec-head-row">
-            <span class="sec-title">${pxIcon('gold', 17)} 避险、彩票与情绪买单</span>
-          </div>
-          <div class="ticket-row">
-            <button class="ticket-btn" id="t-gold" ${state.age >= state.gradAge ? '' : 'disabled'}>
-              ${pxIcon('gold', 20)}
-              <b>买卖黄金</b>
-              <small>${Math.round(state.goldGrams)}g · ¥${state.goldPrice}</small>
-            </button>
-            <button class="ticket-btn" id="t-lottery" ${state.lotteryThisTurn ? 'disabled' : ''}>
-              ${pxIcon('ticket', 20)}
-              <b>买张彩票</b>
-              <small>${state.lotteryThisTurn ? '本季已买' : '¥20 碰运气'}</small>
-            </button>
-            <button class="ticket-btn" id="t-emo" ${state.emoBuyThisTurn ? 'disabled' : ''}>
-              ${pxIcon('gift', 20)}
-              <b>情绪买单</b>
-              <small>${state.emoBuyThisTurn ? '本季已用' : '花钱回心态'}</small>
-            </button>
-          </div>
-        </div>
-      ` : ''}
-
-      <!-- 木格旧物收藏盒 -->
-      <div class="wood-box">
-        <div class="wood-head">
-          <span>木格旧物盒</span>
-          <small>已收藏 ${state.items.length} 件</small>
-        </div>
-        <div class="wood-grid">
-          ${keepsakes.map(k => k.filled ? `
-            <div class="wood-cell filled">
-              ${pxIcon(k.ico, 26)}
-              <span class="w-nm">${k.name}</span>
-              <span class="w-tag">${k.tag}</span>
-            </div>
-          ` : `
-            <div class="wood-cell">
-              <span style="opacity:.35">${pxIcon('dream', 20)}</span>
-              <span class="w-empty">${k.name}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-  `;
+  return renderNewAssetsTab(state, fmtMoney);
 }
 
 function renderSocialTab(budget) {
@@ -807,6 +918,17 @@ function renderSocialTab(budget) {
       val: state.child.bond,
       kid: state.child,
       alt: false
+    });
+  }
+  if (state.pet && state.pet.alive) {
+    const ps = getPetLifeStage(state.pet);
+    people.push({
+      ico: state.pet.ico,
+      name: `${state.pet.name} (${ps?.label || ''}${state.pet.species})`,
+      role: `相伴 ${state.pet.ageYears} 年 · 抗孤独`,
+      val: state.pet.bond || 50,
+      help: true,
+      alt: true
     });
   }
 
@@ -879,28 +1001,7 @@ function renderSocialTab(budget) {
         </div>
       </div>
 
-      <!-- 梦想打卡条 -->
-      <div class="dream-rally">
-        <div class="sec-head-row">
-          <span class="sec-title">${pxIcon('dream', 17)} 梦想打卡条</span>
-          <span class="tag ${state.dreamCompleted ? 'up' : ''}">专长 ${state.dreamSkill}${state.dreamCompleted ? ' · 已圆梦' : '/100'}</span>
-        </div>
-        <div class="rally-track">
-          <div class="rally-line"><i style="width:${dreamPct}%"></i></div>
-          ${rallyStops.map(pt => `
-            <div class="rally-stop ${state.dreamSkill >= pt ? 'lit' : ''}">
-              <div class="rally-dot">${state.dreamSkill >= pt ? '★' : pt}</div>
-              <small>${pt === 100 ? '圆梦' : pt + '分'}</small>
-            </div>
-          `).join('')}
-        </div>
-        <div class="dream-tags">
-          ${state.activeDreams.length
-            ? state.activeDreams.map(d => `<span class="tag up">${d.name}</span>`).join('')
-            : `<span style="font-size:11.5px;color:var(--muted);">暂未锁定方向（18 岁后最多聚焦 1–2 条主攻）</span>`}
-        </div>
-        <button class="pill-btn soft" id="t-dream">${pxIcon('dream', 14)} 查看 / 选定五梦想线</button>
-      </div>
+      ${renderDreamJournalSection(state)}
     </div>
   `;
 }
@@ -909,7 +1010,7 @@ function renderAlbumTab() {
   return `
     <div class="tab-page">
       <div class="sec-card">
-        <h4>🌳 人生树分叉存档（18 / 30 / 50 岁）</h4>
+        <h4 style="display:flex;align-items:center;gap:6px;">${pxIcon('life', 16)} 人生树分叉存档（18 / 30 / 50 岁）</h4>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${[18, 30, 50].map(a => `<button class="btn secondary" data-branch="${a}" ${state.branches[a] ? '' : 'disabled'}>回到 ${a} 岁</button>`).join('')}
           <button class="btn ghost" id="t-memorial">预览纪念册</button>
@@ -917,7 +1018,7 @@ function renderAlbumTab() {
       </div>
 
       <div class="sec-card">
-        <h4>🎞️ 人生胶片相册 (${state.albumPhotos.length} 张)</h4>
+        <h4 style="display:flex;align-items:center;gap:6px;">${pxIcon('film', 16)} 人生胶片相册 (${state.albumPhotos.length} 张)</h4>
         <div class="album-grid">
           ${state.albumPhotos.slice().reverse().map(p => {
             const sp = sprites[state.gender]?.[p.stageIdx] || '';
@@ -940,38 +1041,90 @@ function renderAlbumTab() {
 
 function bindMainEvents(actions, budget, cornerSticker) {
   appEl.querySelectorAll('[data-tab]').forEach(b => {
-    b.onclick = () => { activeTab = b.dataset.tab; drawerOpen = false; render(); };
+    b.onclick = () => {
+      if (theaterState) stopTheater(true);
+      activeTab = b.dataset.tab; drawerOpen = false; render();
+    };
   });
 
   const bind = (id, fn) => { const el = appEl.querySelector(id); if (el) el.onclick = fn; };
 
   // 主页 V4 / V5 交互
-  bind('#btn-open-drawer', () => { drawerOpen = true; moreMenuOpen = false; render(); });
-  bind('#drawer-mask', () => { drawerOpen = false; moreMenuOpen = false; render(); });
-  bind('#v5-close', () => { drawerOpen = false; moreMenuOpen = false; render(); });
-  bind('#toast-close', () => { toastMsg = ''; render(); });
+  bind('#btn-open-drawer', () => {
+    if (theaterState) return;
+    drawerOpen = true; moreMenuOpen = false; render();
+  });
+  bind('#drawer-mask', () => { drawerOpen = false; moreMenuOpen = false; clearHeroStageAnimDom(); render(); });
+  bind('#v5-close', () => { drawerOpen = false; moreMenuOpen = false; clearHeroStageAnimDom(); render(); });
+  bind('#toast-close', () => {
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    toastMsg = '';
+    document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
+  });
   bind('#hud-era', openEraNewspaper);
   bind('#btn-news', openEraNewspaper);
+  bind('#btn-hex-deck', () => {
+    const pending = getPendingHextechAge(state);
+    if (pending) openHextechAwakenModal(pending);
+    else openHexDeckModal('deck');
+  });
+  bind('#btn-open-codex', () => openHexDeckModal('codex'));
+  bind('#theater-skip', () => stopTheater(true));
+  if (theaterState) {
+    bind('#scene-stage', () => stopTheater(true));
+  }
   bind('#hud-cash', () => {
     if (state.totalTurns >= 1 || state.age > 6) {
       activeTab = 'assets'; drawerOpen = false; moreMenuOpen = false; render();
     }
   });
   bind('#hero-tap', () => {
+    if (theaterState) { stopTheater(true); return; }
     heroHop = true;
     showToast(state.gender === 'female' ? '「一步一步走，把这一辈子过得热气腾腾。」' : '「先把手头这一季安排好，未来慢慢来。」');
-    setTimeout(() => { heroHop = false; render(); }, 440);
+    setTimeout(() => {
+      heroHop = false;
+      document.querySelector('#hero-tap')?.classList.remove('hop');
+    }, 440);
   });
 
   if (cornerSticker) {
     bind('#corner-btn', () => {
       if (cornerSticker.id === 'flip') launchFlipGame();
+      else if (cornerSticker.id === 'tuck') openTuckShopSheet();
       else if (cornerSticker.id === 'house') openHouseSheet();
       else if (cornerSticker.id === 'gomoku') launchGomokuGame();
     });
   }
+  bind('#btn-stage-hs', () => {
+    const hs = claimStageHotspot(state);
+    if (!hs) return;
+    saveAutoProgress();
+    showToast(hs.msg);
+  });
+  bind('#btn-stage-pet', () => {
+    const res = interactWithPet(state);
+    if (!res) return;
+    if (res.blocked) {
+      showToast(res.msg);
+      return;
+    }
+    petHopSound = res.sound || '♥';
+    if (petHopTimer) clearTimeout(petHopTimer);
+    saveAutoProgress();
+    showToast(res.msg);
+    petHopTimer = setTimeout(() => {
+      petHopSound = '';
+      petHopTimer = null;
+      const el = document.getElementById('btn-stage-pet');
+      if (el) {
+        el.classList.remove('pet-hop');
+        el.querySelectorAll('.pet-heart').forEach(h => h.remove());
+      }
+    }, 950);
+  });
 
-  // V5 方案 A：爽快型单点贴纸直接入槽 + 上方实时预览
+  // 单点贴纸入槽 + 若凑成新 Combo 当场触发「双卡升空蓄力物理碰撞合体」特效！
   appEl.querySelectorAll('[data-sticker]').forEach(b => {
     b.onclick = () => {
       const id = b.dataset.sticker;
@@ -980,13 +1133,21 @@ function bindMainEvents(actions, budget, cornerSticker) {
       inspectedId = id;
       if (!act) return render();
       if (act.disabled) {
-        showToast(`「${act.name}」本年次数已用完`);
+        showToast(act.disabledReason ? `「${act.name}」${act.disabledReason}` : `「${act.name}」本年次数已用完`);
         return;
       }
+      const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
       if (draft.length < budget.available) {
         draft.push(id);
       }
+      const afterCombos = detectCombos(draft, state);
+      const justFormed = afterCombos.find(c => !prevIds.has(c.id));
+      triggerHeroActionPreview(id, 1400);
       render();
+      if (justFormed) {
+        const isFirst = !state.discoveredCombos.includes(justFormed.id);
+        playComboCollisionVfx(justFormed, isFirst, actions, getActionMeta, state);
+      }
     };
   });
   appEl.querySelectorAll('[data-rm]').forEach(s => {
@@ -1003,6 +1164,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     if (inspectedId && draft.length >= budget.available) {
       draft[draft.length - 1] = inspectedId;
       moreMenuOpen = false;
+      triggerHeroActionPreview(inspectedId, 1400);
       render();
     }
   });
@@ -1011,6 +1173,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     draft = buildSmartDraft(state, actions, budget);
     inspectedId = draft[draft.length - 1] || null;
     moreMenuOpen = false;
+    if (inspectedId) triggerHeroActionPreview(inspectedId, 1400);
     showToast('已按当前目标帮你排满，点上方 ✕ 可随时替换');
   };
   const doReuse = () => {
@@ -1018,6 +1181,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     draft = state.lastDraft.filter(id => valid.has(id)).slice(0, budget.available);
     inspectedId = draft[draft.length - 1] || null;
     moreMenuOpen = false;
+    if (inspectedId) triggerHeroActionPreview(inspectedId, 1400);
     render();
   };
 
@@ -1026,7 +1190,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
   bind('#v5-reuse', doReuse);
   bind('#v5-reuse-menu', doReuse);
   bind('#v5-more-toggle', (e) => { e.stopPropagation(); moreMenuOpen = !moreMenuOpen; render(); });
-  bind('#v5-clear', () => { draft = []; moreMenuOpen = false; render(); });
+  bind('#v5-clear', () => { draft = []; moreMenuOpen = false; clearHeroStageAnimDom(); render(); });
   bind('#v5-tpl', () => {
     moreMenuOpen = false;
     if (state.templates.balance.length) {
@@ -1042,34 +1206,52 @@ function bindMainEvents(actions, budget, cornerSticker) {
     }
   });
 
-  // 执行本回合（丝滑收起抽屉 -> 主角微跳 -> 2秒飘字浮条）
+  // 执行本回合：收起抽屉 -> 播放 1.8s 手账连播小剧场（可轻点秒跳）-> 衔接大节点 / 年度决算 / 命运海克斯觉醒
   bind('#v5-exec', () => {
-    const res = executeTurn(state, draft);
+    const execDraft = [...draft];
+    const res = executeTurn(state, execDraft);
     draft = [];
     inspectedId = null;
     moreMenuOpen = false;
     drawerOpen = false;
-    heroHop = true;
-    render();
-    setTimeout(() => { heroHop = false; }, 440);
+    clearHeroStageAnimDom();
+    saveAutoProgress();
 
-    if (state.ended) return;
-    const afterAll = () => {
-      if (res.needGaokao) return openGaokaoV3();
-      if (state.age === state.gradAge && state.subTurn === 1 && !state.track) return openGradV3();
-      if (res.yearEndReport) return showYearEndV3(res.yearEndReport);
+    if (state.ended) { render(); return; }
+
+    const needGrad = state.age === state.gradAge && state.subTurn === 1 && !state.track;
+    const afterEvents = () => {
+      if (res.needGaokao) return openGaokaoV3(() => checkPendingHextech());
+      if (needGrad) return openGradV3(() => checkPendingHextech());
+      if (res.yearEndReport) return showYearEndV3(res.yearEndReport, () => checkPendingHextech());
+      if (!checkPendingHextech()) {
+        if (res.rerollTicketsEarned > 0) {
+          showToast(`新解锁 ${state.discoveredCombos.length} 条连携图鉴，获命运重随券 +${res.rerollTicketsEarned}！`);
+        } else if (res.newlyDiscoveredCombos?.length > 0) {
+          showToast(`收录新连携图鉴：${res.newlyDiscoveredCombos.map(c => c.name).join(' · ')}`);
+        } else {
+          triggerFloatPops(res.summary);
+          render();
+        }
+      }
     };
 
-    if (res.triggeredEvent) {
-      showApprovedEventV3(res.triggeredEvent, afterAll);
-    } else {
-      triggerFloatPops(res.summary);
-      render();
-      afterAll();
-    }
+    const afterTheater = () => {
+      if (res.triggeredEvent) {
+        showApprovedEventV3(res.triggeredEvent, afterEvents, { isMidTurn: false });
+      } else if (res.midTurnEvent) {
+        showApprovedEventV3(res.midTurnEvent, afterEvents, { isMidTurn: true });
+      } else {
+        afterEvents();
+      }
+    };
+
+    playTurnTheater(res, afterTheater);
   });
 
-  // 二级 Tab 按钮绑定
+  // 二级 Tab 按钮绑定（含定稿版家与账小猪摇晃/购车/多宝格点击故事 & 追梦和解转身）
+  bindNewAssetsInteractions(appEl, state, saveAutoProgress, showToast, render);
+  bind('#t-tuck', openTuckShopSheet);
   bind('#t-house', openHouseSheet);
   bind('#t-puzzle', launchHomePuzzle);
   bind('#t-city', openCitySheet);
@@ -1085,13 +1267,22 @@ function bindMainEvents(actions, budget, cornerSticker) {
     state.relations.parents.intimacy = clamp(state.relations.parents.intimacy - 3);
     showToast('请父母代照护，本季释放 1 格时间槽（父母亲密 -3）');
   });
-  bind('#t-dream', openDreamSheet);
+  appEl.querySelectorAll('[data-pivot-dream]').forEach(btn => {
+    btn.onclick = () => {
+      const did = btn.dataset.pivotDream;
+      const meta = DREAM_CATALOG[did];
+      applyGracefulPivot(state, did);
+      saveAutoProgress();
+      render();
+      showToast(`与执念温柔和解，已沉淀为终身特质：${meta.pivotTrait}`);
+    };
+  });
   bind('#t-memorial', () => { state.ended = true; state.endReason = '手动预览人生纪念册'; render(); });
   appEl.querySelectorAll('[data-branch]').forEach(b => {
     b.onclick = () => {
       const a = Number(b.dataset.branch);
       if (state.branches[a]) {
-        const saved = JSON.parse(state.branches[a]);
+        const saved = ensureSprint1State(JSON.parse(state.branches[a]));
         saved.branches = state.branches;
         state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home';
         showToast(`已从人生树回到 ${a} 岁分叉点！`);
@@ -1100,103 +1291,391 @@ function bindMainEvents(actions, budget, cornerSticker) {
   });
 }
 
-// ===== 千禧年出生扉页（序幕开局页：性别分流 + 出身抽签券 + 天赋三选一）=====
+// ===== 首屏 V2（方案 1：电影感纯封面 + 3 步手账翻页，全机型零滚动 + 本地自动存档续玩）=====
 function renderIntro() {
-  const previewSp = sprites[pickedGender]?.[0] || '';
+  const maleSp = sprites.male?.[0] || '';
+  const femaleSp = sprites.female?.[0] || '';
+  const curSp = sprites[pickedGender]?.[0] || maleSp;
+  const savedRun = loadAutoSave();
+
+  let screenHtml = '';
+
+  if (introStep === 0) {
+    const savedInfo = savedRun
+      ? `${savedRun.age}岁 · 第${savedRun.subTurn}季`
+      : '';
+    screenHtml = `
+      <div class="intro-v2-screen">
+        <div class="cover-stage">
+          <img class="cover-bg" src="./assets/bg/child.jpg" />
+          <div class="cover-veil"></div>
+          <div class="cover-title-block">
+            <span class="cover-kicker">${pxIcon('film', 13)} 千禧人生手账 · 6–80 岁</span>
+            <div class="cover-title-halo">
+              <div class="cover-logo">
+                <h1>这辈子</h1>
+                <span class="cover-ver">2.0</span>
+              </div>
+              <div class="cover-slogan">每一岁，都是人生相册里的一张胶片</div>
+            </div>
+          </div>
+          <div class="cover-hero">
+            ${curSp ? `<img class="sp" src="${curSp}" alt="主角" />` : ''}
+            <div class="sh"></div>
+          </div>
+          <div class="date-stamp">1998.03</div>
+        </div>
+
+        <div class="cover-dock">
+          <svg class="cover-torn" viewBox="0 0 390 13" preserveAspectRatio="none">
+            <path d="M0,13 L0,7 Q16,2 32,7 T64,6 T96,8 T128,5 T160,8 T192,5 T224,8 T256,5 T288,7 T320,5 T352,8 T390,6 L390,13 Z" fill="#fffdf9"/>
+          </svg>
+          <div class="washi-tape left"></div>
+          <div class="washi-tape right"></div>
+          <button class="cta-main" id="btn-new-life" style="width:228px;max-width:228px;">开启这一生 →</button>
+          ${savedRun ? `
+            <button class="cover-continue" id="btn-continue-life">
+              ${pxIcon('passbook', 13)} 继续上次人生（${savedInfo}）
+            </button>
+          ` : ''}
+          <div class="cover-foot">纯人工审核剧情 · 双性别差异化人生线</div>
+        </div>
+      </div>
+    `;
+  } else if (introStep === 1) {
+    const flavor = pickedGender === 'female'
+      ? '<b>女主线预告：</b>8 岁珍藏「复古芭比娃娃」可上墙激活居家 Buff，经历职场平衡与温暖人际的专属生活切片。'
+      : '<b>男主线预告：</b>8 岁珍藏「红色悠悠球」可上墙激活居家 Buff，经历安家置业与职场拼搏的专属生活切片。';
+    screenHtml = `
+      <div class="intro-v2-screen">
+        <div class="wiz-top">
+          <button class="wiz-back" id="wiz-prev">‹ 返回</button>
+          <div class="wiz-prog">
+            <div class="wiz-dots"><i class="on"></i><i></i><i></i></div>
+            <span class="wiz-step-txt">1 / 3 · 选择主角</span>
+          </div>
+          <span></span>
+        </div>
+
+        <div class="wiz-body">
+          <div class="wiz-head">
+            <h2>你想以谁的视角出发？</h2>
+            <p>双性别拥有专属童年旧物、人生处境与独立人审剧情</p>
+          </div>
+
+          <div class="gender-pair">
+            <button class="g-polaroid ${pickedGender==='male'?'sel':''}" id="g-m">
+              ${pickedGender==='male' ? '<span class="g-check">✓</span>' : ''}
+              <div class="g-photo">${maleSp ? `<img src="${maleSp}" alt="男主角" />` : ''}</div>
+              <div class="g-name">男主角</div>
+              <div class="g-toy">${pxIcon('yoyo', 13)} 红色悠悠球</div>
+            </button>
+            <button class="g-polaroid ${pickedGender==='female'?'sel':''}" id="g-f">
+              ${pickedGender==='female' ? '<span class="g-check">✓</span>' : ''}
+              <div class="g-photo">${femaleSp ? `<img src="${femaleSp}" alt="女主角" />` : ''}</div>
+              <div class="g-name">女主角</div>
+              <div class="g-toy">${pxIcon('doll', 13)} 复古芭比娃娃</div>
+            </button>
+          </div>
+
+          <div class="flavor-note">
+            ${pxIcon('spark', 17)}
+            <span>${flavor}</span>
+          </div>
+        </div>
+
+        <div class="wiz-foot">
+          <button class="cta-main" id="wiz-next" style="width:232px;max-width:232px;">下一步 · 抽取出身 →</button>
+        </div>
+      </div>
+    `;
+  } else if (introStep === 2) {
+    const probPct = Math.round((pickedOrigin.prob || 0.2) * 100);
+    const eduText = pickedOrigin.eduLimit >= 99 ? '不限次' : `${pickedOrigin.eduLimit} 次 / 年`;
+    screenHtml = `
+      <div class="intro-v2-screen">
+        <div class="wiz-top">
+          <button class="wiz-back" id="wiz-prev">‹ 上一步</button>
+          <div class="wiz-prog">
+            <div class="wiz-dots"><i class="done"></i><i class="on"></i><i></i></div>
+            <span class="wiz-step-txt">2 / 3 · 出生家境</span>
+          </div>
+          <span></span>
+        </div>
+
+        <div class="wiz-body">
+          <div class="wiz-head">
+            <h2>命运抽签 · 你的起点</h2>
+            <p>${unlockedSelfPick ? '已通关解锁：可自由切换任意出身' : '按现实比例随机抽取，通关任意结局后解锁自选'}</p>
+          </div>
+
+          <div class="fortune-card">
+            <div class="ft-tape"></div>
+            <div class="ft-head">
+              <span class="ft-prob">${unlockedSelfPick ? '自由选择模式' : `已抽中 · 现实概率 ${probPct}%`}</span>
+              <div class="ft-name">${pickedOrigin.name}之家</div>
+            </div>
+
+            <div class="ft-grid">
+              <div class="ft-kv"><span>家庭家底</span><b>约 ¥${fmtMoney(pickedOrigin.familyAsset)}</b></div>
+              <div class="ft-kv"><span>父母首付支援</span><b>¥${fmtMoney(pickedOrigin.downpaySupport)}</b></div>
+              <div class="ft-kv"><span>童年起步零花</span><b>¥${pickedOrigin.pocketMoney || 50} / 月</b></div>
+              <div class="ft-kv"><span>年补习上限</span><b>${eduText}</b></div>
+            </div>
+
+            <div class="ft-traits">
+              <div class="ft-tr"><span class="ft-dot pos">＋</span><span>${pickedOrigin.buff}</span></div>
+              <div class="ft-tr"><span class="ft-dot neg">!</span><span>${pickedOrigin.debuff}</span></div>
+            </div>
+
+            <div class="ft-reroll-row">
+              ${unlockedSelfPick
+                ? ORIGINS.map(o => `<button class="pill-btn ${pickedOrigin.id===o.id?'primary':''}" style="height:26px;padding:0 9px;font-size:11px;" data-po="${o.id}">${o.name}</button>`).join('')
+                : `<button class="pill-btn soft" id="btn-reroll" style="height:29px;padding:0 13px;font-size:11.5px;" ${rerollUsed?'disabled':''}>${rerollUsed?'已用完重抽机会':'↻ 免费重抽一次（剩 1 次）'}</button>`}
+            </div>
+          </div>
+        </div>
+
+        <div class="wiz-foot">
+          <button class="cta-main" id="wiz-next" style="width:236px;max-width:236px;">接受出身 · 选天赋 →</button>
+        </div>
+      </div>
+    `;
+  } else {
+    screenHtml = `
+      <div class="intro-v2-screen">
+        <div class="wiz-top">
+          <button class="wiz-back" id="wiz-prev">‹ 上一步</button>
+          <div class="wiz-prog">
+            <div class="wiz-dots"><i class="done"></i><i class="done"></i><i class="on"></i></div>
+            <span class="wiz-step-txt">3 / 3 · 初始天赋</span>
+          </div>
+          <span></span>
+        </div>
+
+        <div class="wiz-body">
+          <div class="build-summary">
+            <span class="mini-av">${curSp ? `<img src="${curSp}" alt="头像" />` : ''}</span>
+            <span>${pickedGender === 'female' ? '女主角' : '男主角'} · ${pickedOrigin.name}之家</span>
+          </div>
+
+          <div class="wiz-head">
+            <h2>挑选一项初始天赋</h2>
+            <p>从「${pickedOrigin.name}之家」专属天赋池中三选一</p>
+          </div>
+
+          <div class="talent-list">
+            ${pickedOrigin.talents.map(t => `
+              <button class="talent-opt ${pickedTalent===t.id?'active':''}" data-t="${t.id}">
+                <span class="talent-radio"></span>
+                <div>
+                  <b>${t.name}</b>
+                  <small>${t.desc}</small>
+                </div>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="wiz-foot">
+          <button class="cta-main" id="btn-start" style="width:224px;max-width:224px;">6 岁正式起步 →</button>
+        </div>
+      </div>
+    `;
+  }
+
   appEl.innerHTML = `
     <div class="phone-stage-outer">
       <div class="phone-frame">
         <div class="wx-topbar-safe"><div class="wx-capsule"><span>•••</span><span>|</span><span>◉</span></div></div>
-        <div class="tab-page intro-page">
-          <!-- 千禧手账封面卡 -->
-          <div class="intro-cover">
-            <div class="intro-tape l"></div>
-            <div class="intro-tape r"></div>
-            <span class="intro-stamp">千禧记忆档案 · NO.1998</span>
-            <h2>《这辈子 2.0》</h2>
-            <div class="intro-sub">每一岁，都是人生相册里的一张胶片</div>
-            <div class="intro-portrait">
-              ${previewSp ? `<img src="${previewSp}" alt="主角预览" />` : ''}
-            </div>
-            <div class="gender-seg">
-              <button class="gender-opt ${pickedGender==='male'?'active':''}" id="g-m">${pxIcon('yoyo', 14)} 男主角 · 悠悠球</button>
-              <button class="gender-opt ${pickedGender==='female'?'active':''}" id="g-f">${pxIcon('doll', 14)} 女主角 · 芭比娃娃</button>
-            </div>
-          </div>
-
-          <!-- 出身抽签券 -->
-          <div class="origin-ticket">
-            <div class="origin-hd">
-              <div class="origin-title">
-                ${pxIcon('passbook', 16)}
-                <span>出生家境</span>
-                <span class="origin-badge">${pickedOrigin.name}</span>
-              </div>
-              ${!unlockedSelfPick
-                ? `<button class="pill-btn soft" id="btn-reroll" style="height:26px;padding:0 9px;font-size:11px;" ${rerollUsed?'disabled':''}>${rerollUsed?'已重抽':'免费重抽'}</button>`
-                : `<span class="tag up">已解锁自选</span>`}
-            </div>
-            ${unlockedSelfPick ? `
-              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
-                ${ORIGINS.map(o => `<button class="pill-btn ${pickedOrigin.id===o.id?'primary':''}" style="height:26px;padding:0 9px;font-size:11px;" data-po="${o.id}">${o.name}</button>`).join('')}
-              </div>
-            ` : ''}
-            <div class="origin-stats">
-              <div class="origin-kv"><span>家庭家底</span><b>约 ¥${fmtMoney(pickedOrigin.familyAsset)}</b></div>
-              <div class="origin-kv"><span>首付支援</span><b>¥${fmtMoney(pickedOrigin.downpaySupport)}</b></div>
-            </div>
-            <div class="origin-traits">
-              <div class="ot-line"><span class="ot-dot pos">＋</span><span>${pickedOrigin.buff}</span></div>
-              <div class="ot-line"><span class="ot-dot neg">!</span><span>${pickedOrigin.debuff}</span></div>
-            </div>
-          </div>
-
-          <!-- 天赋三选一 -->
-          <div class="origin-ticket">
-            <div class="sec-head-row" style="margin-bottom:7px;">
-              <span class="sec-title">${pxIcon('spark', 15)} 挑选初始天赋</span>
-              <span style="font-size:11px;color:var(--muted);">三选一</span>
-            </div>
-            <div class="talent-list">
-              ${pickedOrigin.talents.map(t => `
-                <button class="talent-opt ${pickedTalent===t.id?'active':''}" data-t="${t.id}">
-                  <span class="talent-radio"></span>
-                  <div>
-                    <b>${t.name}</b>
-                    <small>${t.desc}</small>
-                  </div>
-                </button>
-              `).join('')}
-            </div>
-          </div>
-
-          <div class="intro-cta-wrap">
-            <button class="cta-main" id="btn-start">6 岁正式起步 →</button>
-          </div>
-        </div>
+        ${screenHtml}
       </div>
     </div>
   `;
-  appEl.querySelector('#g-m').onclick = () => { pickedGender = 'male'; renderIntro(); };
-  appEl.querySelector('#g-f').onclick = () => { pickedGender = 'female'; renderIntro(); };
-  const rr = appEl.querySelector('#btn-reroll');
-  if (rr) rr.onclick = () => { rerollUsed = true; pickedOrigin = rollOrigin(); pickedTalent = pickedOrigin.talents[0].id; renderIntro(); };
-  appEl.querySelectorAll('[data-po]').forEach(b => { b.onclick = () => { pickedOrigin = ORIGINS.find(o => o.id === b.dataset.po); pickedTalent = pickedOrigin.talents[0].id; renderIntro(); }; });
-  appEl.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => { pickedTalent = b.dataset.t; renderIntro(); }; });
-  appEl.querySelector('#btn-start').onclick = () => {
-    state = createInitialState(pickedOrigin.id, pickedTalent, pickedGender);
+
+  // 事件绑定
+  const bind = (id, fn) => { const el = appEl.querySelector(id); if (el) el.onclick = fn; };
+  bind('#btn-new-life', () => { introStep = 1; renderIntro(); });
+  bind('#btn-continue-life', () => {
+    const s = loadAutoSave();
+    if (!s) return renderIntro();
+    state = s;
     activeTab = 'home'; drawerOpen = false; draft = []; inspectedId = null; moreMenuOpen = false;
     render();
-    showToast('6 岁开学啦！点下方「安排新学期」开始你的第一季');
-  };
+    showToast(`欢迎回来！已恢复 ${state.age} 岁 · 第 ${state.subTurn} 季进度`);
+  });
+  bind('#wiz-prev', () => { introStep = Math.max(0, introStep - 1); renderIntro(); });
+  bind('#wiz-next', () => { introStep = Math.min(3, introStep + 1); renderIntro(); });
+  bind('#g-m', () => { pickedGender = 'male'; renderIntro(); });
+  bind('#g-f', () => { pickedGender = 'female'; renderIntro(); });
+  bind('#btn-reroll', () => {
+    rerollUsed = true;
+    pickedOrigin = rollOrigin();
+    pickedTalent = pickedOrigin.talents[0].id;
+    renderIntro();
+  });
+  appEl.querySelectorAll('[data-po]').forEach(b => {
+    b.onclick = () => {
+      pickedOrigin = ORIGINS.find(o => o.id === b.dataset.po);
+      pickedTalent = pickedOrigin.talents[0].id;
+      renderIntro();
+    };
+  });
+  appEl.querySelectorAll('[data-t]').forEach(b => {
+    b.onclick = () => { pickedTalent = b.dataset.t; renderIntro(); };
+  });
+  bind('#btn-start', () => {
+    clearAutoSave();
+    state = createInitialState(pickedOrigin.id, pickedTalent, pickedGender);
+    activeTab = 'home'; drawerOpen = false; draft = []; inspectedId = null; moreMenuOpen = false;
+    saveAutoProgress();
+    render();
+    // 6 岁启蒙立刻触发首张「命运海克斯」三选一！
+    const pending = getPendingHextechAge(state);
+    if (pending) {
+      openHextechAwakenModal(pending, () => {
+        showToast('6 岁开学啦！点下方「安排新学期」开始你的第一季');
+      });
+    } else {
+      showToast('6 岁开学啦！点下方「安排新学期」开始你的第一季');
+    }
+  });
 }
 
-// ===== 专属「人审剧情手账阅读器」（舒展行距 + 高属性/高羁绊金框选项）=====
-function showApprovedEventV3(ev, next) {
+// ===== Sprint 1 核心弹窗：命运海克斯 2.0 觉醒三选一（单卡独立刷新 + 羁绊预亮 + 进化/融合）=====
+function checkPendingHextech(onDone) {
+  const pending = getPendingHextechAge(state);
+  if (!pending) return false;
+  openHextechAwakenModal(pending, onDone);
+  return true;
+}
+
+function openHextechAwakenModal(nodeAge, onDone) {
+  ensureSprint1State(state);
+  openHextechV4Modal({
+    state,
+    nodeAge,
+    mountOverlay,
+    clearOverlay,
+    saveAutoProgress,
+    renderMain: render,
+    showToast,
+    onDone
+  });
+}
+
+// ===== 命运海克斯卡组 & 生活 Combo 图鉴查看器 =====
+function openHexDeckModal(defaultTab = 'deck') {
+  ensureSprint1State(state);
+  let curTab = defaultTab;
+
+  const renderDeck = () => {
+    const bonds = getHexBondCounts(state);
+    const tierLabel = t => t === 'prism' ? '棱彩' : t === 'gold' ? '黄金' : '白银';
+
+    let inner = '';
+    if (curTab === 'deck') {
+      inner = `
+        <div class="bond-grid">
+          ${Object.values(HEX_BONDS).map(b => {
+            const c = bonds[b.id] || 0;
+            const cls = c >= 4 ? 'lit4' : c >= 2 ? 'lit2' : '';
+            return `
+              <div class="bond-box ${cls}">
+                <div class="bond-box-top">
+                  <span style="color:${b.color};">${pxIcon(b.ico, 13)} ${b.name}</span>
+                  <span>${c}/4</span>
+                </div>
+                <div class="bond-box-desc">${c >= 4 ? `★4张生效：${b.t4}` : c >= 2 ? `★2张生效：${b.t2}` : `凑2张：${b.t2}`}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="hex-slot-list">
+          ${state.hexCards.map((inst) => {
+            const def = HEX_CARD_MAP[inst.id];
+            if (!def) return '';
+            let liveTag = '';
+            if (def.kind === 'scaling') liveTag = ` · 进度 ${inst.stacks}/${def.maxStacks}`;
+            if (def.kind === 'delayed') {
+              liveTag = inst.done ? ' · 已兑现' : (inst.turnsLeft > 0 ? ` · 剩 ${inst.turnsLeft} 季` : ` · 剩 ${inst.yearsLeft} 年`);
+            }
+            return `
+              <div class="hex-slot-row">
+                <div class="hx-ico-well" style="width:34px;height:34px;">${pxIcon(def.ico || 'hex', 19)}</div>
+                <div style="flex:1;min-width:0;">
+                  <div class="hx-badges">
+                    <span class="hx-tier-tag ${def.tier}">${tierLabel(def.tier)}</span>
+                    ${def.kindLabel ? `<span class="hx-special-tag">${def.kindLabel}</span>` : ''}
+                    ${def.bonds.map(bid => `<span class="hx-bond-tag" style="background:${HEX_BONDS[bid].bg};color:${HEX_BONDS[bid].color};">${HEX_BONDS[bid].short}</span>`).join('')}
+                    <span style="font-size:10px;color:var(--muted);">${inst.acquiredAge}岁${liveTag}</span>
+                  </div>
+                  <div style="font-size:13px;font-weight:800;color:var(--ink);">${def.name}</div>
+                  <div style="font-size:11px;color:var(--muted);line-height:1.4;margin-top:2px;">${def.detail || def.desc}</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+          ${HEX_NODES.filter(a => !state.hexTriggeredAges.includes(a)).map(nodeAge => `
+            <div class="hex-slot-row empty">${pxIcon('hex', 15)} <span>待觉醒 · ${nodeAge} 岁节点解锁${state.age >= nodeAge ? '（可立即觉醒）' : ''}</span></div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      const nextTicketRem = 3 - (state.discoveredCombos.length % 3);
+      inner = `
+        <div class="mg-stats" style="margin-bottom:8px;">
+          已发现 <b>${state.discoveredCombos.length}/${SCHEDULE_COMBOS.length}</b> 条生活连携 · 再发现 <b>${nextTicketRem}</b> 条送重随券 +1（现有 ${state.hexRerollTickets} 张）
+        </div>
+        ${SCHEDULE_COMBOS.map(cb => {
+          const unlocked = state.discoveredCombos.includes(cb.id);
+          return `
+            <div class="codex-item ${unlocked ? '' : 'locked'}">
+              <div class="codex-top">
+                <span>${unlocked ? `★ ${cb.name}` : '未发现连携'}</span>
+                <span class="tag ${unlocked ? 'up' : ''}">${unlocked ? '已收录' : cb.stage === 'child' ? '童年' : cb.stage === 'adult' ? '青中年' : cb.stage === 'elder' ? '老年' : '全阶段'}</span>
+              </div>
+              <div class="codex-sub">${unlocked ? `${cb.hint} → ${cb.desc}` : `线索：${cb.hint}`}</div>
+            </div>
+          `;
+        }).join('')}
+      `;
+    }
+
+    mountOverlay(`
+      <div class="sheet-modal"><div class="sheet-box" style="max-height:82%;display:flex;flex-direction:column;">
+        <div class="sec-head-row" style="margin-bottom:8px;">
+          <span class="sec-title">${pxIcon('hex', 17)} 命运卡组与连携图鉴</span>
+          <span class="tag">${pxIcon('dice', 12)} 重随券 ×${state.hexRerollTickets}</span>
+        </div>
+        <div class="deck-tabs">
+          <button class="deck-tab ${curTab === 'deck' ? 'active' : ''}" id="tab-deck">命运卡组 (${state.hexCards.length}/7)</button>
+          <button class="deck-tab ${curTab === 'codex' ? 'active' : ''}" id="tab-codex">连携图鉴 (${state.discoveredCombos.length}/${SCHEDULE_COMBOS.length})</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;min-height:0;padding-right:2px;">${inner}</div>
+        <div class="mg-actions" style="margin-top:8px;">
+          <button class="btn primary" id="deck-close" style="width:100%;">收起</button>
+        </div>
+      </div></div>
+    `, host => {
+      host.querySelector('#tab-deck').onclick = () => { curTab = 'deck'; renderDeck(); };
+      host.querySelector('#tab-codex').onclick = () => { curTab = 'codex'; renderDeck(); };
+      host.querySelector('#deck-close').onclick = () => { clearOverlay(); render(); };
+    });
+  };
+  renderDeck();
+}
+
+// ===== 专属「人审剧情手账阅读器」（支持海克斯金色共鸣破局、属性检定、概率博弈）=====
+function showApprovedEventV3(ev, next, opts = {}) {
   const cleanTitle = ev.title.replace(/\[.*?\]\s*/, '');
-  const chapterLabel = ev.priority === 'P0' ? '人生重要节点'
-    : ev.priority === 'P1' ? '珍藏记忆定格'
-    : '生活烟火切片';
+  const chapterLabel = ev.isDreamEvent
+    ? '心之所向 · 追梦切片'
+    : opts.isMidTurn
+      ? '半路小插曲 · 随机奇遇'
+      : ev.priority === 'P0' ? '人生重要节点'
+      : ev.priority === 'P1' ? '珍藏记忆定格'
+      : '生活烟火切片';
 
   const splitChoiceLabel = raw => {
     const m = raw.match(/^(.*?)[（(]([^）)]+)[）)]$/);
@@ -1207,22 +1686,29 @@ function showApprovedEventV3(ev, next) {
     storyMode: true,
     badge: chapterLabel,
     title: cleanTitle,
-    photoCaption: cleanTitle,
+    photoCaption: opts.isMidTurn ? null : cleanTitle,
     bodyHtml: `
       <div class="story-paper">${ev.summary}</div>
       <div class="story-choices">
         ${ev.choices.map((c, idx) => {
-          const isSpecial = Boolean(c.reqAny || c.reqRelation);
+          const isSpecial = Boolean(c.reqAny || c.reqRelation || typeof c.reqCustom === 'boolean');
           let ok = true;
           if (c.reqAny) ok = Object.entries(c.reqAny).some(([k, v]) => state.stats[k] >= v);
           if (c.reqRelation) ok = (state.relations.partner?.intimacy >= c.reqRelation) || (state.child?.bond >= c.reqRelation);
+          if (typeof c.reqCustom === 'boolean') ok = c.reqCustom;
           const { main, sub } = splitChoiceLabel(c.label);
-          const cls = isSpecial ? (ok ? 'gold-choice' : 'locked-choice') : '';
-          const badgeHtml = isSpecial
-            ? (ok
-              ? `<span class="gold-badge">★ ${c.reqRelation ? '羁绊解锁' : '高属性解锁'}</span>`
-              : `<span class="lock-badge">${pxIcon('lock', 11)} 未达条件</span>`)
-            : '';
+          const cls = c.isHexResonance ? 'hex-res-choice' : isSpecial ? (ok ? 'gold-choice' : 'locked-choice') : '';
+          let badgeHtml = '';
+          if (c.isHexResonance) {
+            badgeHtml = `<span class="gold-badge">${pxIcon('hex', 11)} 海克斯共鸣</span>`;
+          } else if (isSpecial) {
+            badgeHtml = ok
+              ? `<span class="gold-badge">★ ${c.reqRelation ? '羁绊解锁' : '条件达标'}</span>`
+              : `<span class="lock-badge">${pxIcon('lock', 11)} 未达条件</span>`;
+          } else if (c.gamble) {
+            const pct = Math.min(95, Math.round((c.gamble.rate + (hasHex(state, 'hx_koi_god') ? 0.25 : 0) + (getBondTier(state, 'luck') >= 4 ? 0.20 : 0)) * 100));
+            badgeHtml = `<span class="gold-badge">${pct}% 博弈</span>`;
+          }
           return `
             <button class="story-choice ${cls}" data-ci="${idx}" ${ok ? '' : 'disabled'}>
               <div class="sc-top">
@@ -1238,42 +1724,53 @@ function showApprovedEventV3(ev, next) {
     onDone: (host, finish) => {
       host.querySelectorAll('[data-ci]').forEach(b => {
         b.onclick = () => {
-          const ef = ev.choices[Number(b.dataset.ci)].effects;
-          if (ef.cash) state.cash += ef.cash;
-          if (ef.mood) state.stats.mood = clamp(state.stats.mood + ef.mood);
-          if (ef.selfCare) state.stats.selfCare = clamp(state.stats.selfCare + ef.selfCare);
-          if (ef.parentInt) state.relations.parents.intimacy = clamp(state.relations.parents.intimacy + ef.parentInt);
-          if (ef.item && !state.items.includes(ef.item)) state.items.push(ef.item);
-          if (ef.exp && !state.experiences.includes(ef.exp)) state.experiences.push(ef.exp);
-          finish(); next();
+          const choice = ev.choices[Number(b.dataset.ci)];
+          const res = applyEventChoiceEffects(state, choice);
+          if (res.photoCaption) {
+            state.albumPhotos.push({
+              age: state.age,
+              stamp: getDateStamp(state.age, state.subTurn),
+              title: res.photoCaption,
+              stageIdx: getSubStageIndex(state.age),
+              bg: getBgKey(state.age)
+            });
+          }
+          finish();
+          if (res.openTuckAfter) {
+            openTuckShopSheet();
+            return;
+          }
+          if (res.msg) showToast(res.msg);
+          if (next) next();
         };
       });
     }
   });
 }
 
-function openGaokaoV3() {
-  let mod = 0;
+function openGaokaoV3(afterDone) {
+  let mod = (state.gaokaoHexBonus || 0) + (hasHex(state, 'hx_tsinghua_link') ? 4 : 0);
   if (state.stats.mood >= 60) mod += 2; else if (state.stats.mood < 30) mod -= 3;
-  if (state.stats.fatigue >= state.origin.fatigueLimit) mod -= 2;
+  if (state.stats.fatigue >= getEffectiveFatigueLimit(state)) mod -= 2;
   if (state.experiences.includes('exp_gaokao_sprint')) mod += 1;
   if (state.origin.id === 'welloff') mod += 1;
   const score = clamp(state.stats.knowledge + mod);
-  const hasSprint = state.experiences.includes('exp_gaokao_sprint');
+  const hasSprint = state.experiences.includes('exp_gaokao_sprint') || getBondTier(state, 'scholar') >= 4;
 
   showV3Capture({
-    badge: 'P0 生命大节点 · 18岁高考',
+    compactViewfinder: true,
+    badge: '18 岁高考 · 人生重要节点',
     title: `高考出分：${score} 分 · 填报志愿`,
     photoCaption: `18岁高考 ${score} 分`,
     bodyHtml: `
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px;">可动用留学资金：${fmtMoney(state.studyAbroadLeft)}</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px;">可动用留学资金：¥${fmtMoney(state.studyAbroadLeft)}</p>
       <div style="display:flex;flex-direction:column;gap:7px;">
         ${UNIVERSITIES.map(u => {
           let ok = u.abroad
             ? state.studyAbroadLeft >= u.cost && state.stats.knowledge >= u.minScore && state.stats.expr >= (u.minExpr - (state.talent.id === 't_vision' ? 10 : 0))
             : (u.tier === 1 ? score >= 90 && hasSprint : score >= u.minScore);
           return `<button class="action-card" data-u="${u.id}" ${ok?'':'disabled'}>
-            <div class="ac-top"><span>${u.name}</span><span>${ok?'✅':'🔒'}</span></div>
+            <div class="ac-top"><span>${u.name}</span><span>${ok ? '可选' : '未达线'}</span></div>
             <div class="ac-sub">${u.note}</div>
           </button>`;
         }).join('')}
@@ -1288,7 +1785,20 @@ function openGaokaoV3() {
             state.parentSupportLeft = Math.max(0, state.parentSupportLeft - u.cost);
             state.studyAbroadLeft -= u.cost;
           }
+          // 追梦高考联动：主流本科及以上取得临床医学准入学籍；第一档顶尖学府直通清北圆梦！
+          if (u.tier <= 3 && !u.abroad && state.dreams?.d_surgeon) {
+            state.dreams.d_surgeon.medQualified = true;
+          }
+          if (u.id === 'u1' && state.dreams?.d_tsinghua?.stage >= 2) {
+            state.dreams.d_tsinghua.stage = 4;
+            state.dreams.d_tsinghua.outcome = 'success';
+            state.dreams.d_tsinghua.xp = 100;
+            state.dreamCompleted = true;
+            if (!state.experiences.includes('exp_dream_complete')) state.experiences.push('exp_dream_complete');
+            if (!state.items.includes('清北烫金录取通知书')) state.items.push('清北烫金录取通知书');
+          }
           finish();
+          if (afterDone) afterDone();
           showToast(`已被「${u.name}」录取！`);
         };
       });
@@ -1296,39 +1806,51 @@ function openGaokaoV3() {
   });
 }
 
-function openGradV3() {
+function openGradV3(afterDone) {
   let selCity = state.cityTier, selTrack = 'steady';
-  function show() {
-    showV3Capture({
-      badge: `P0 毕业择城 · ${state.age}岁`,
-      title: '选择你的奋斗城市与职业曲线',
-      photoCaption: `${state.age}岁毕业初入社会`,
-      bodyHtml: `
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-          ${[1,2,3].map(t => `<button class="btn ${selCity===t?'primary':''}" data-c="${t}">${CITIES[t].name.slice(0,4)}</button>`).join('')}
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
-          ${TRACKS.map(tr => `<button class="action-card" style="${selTrack===tr.id?'border-color:var(--accent);background:var(--accent-soft);':''}" data-tr="${tr.id}">
-            <div class="ac-top"><span>${tr.name.slice(0,11)}</span><span>拐点${tr.capAge}岁</span></div>
-            <div class="ac-sub">退休替代率 ${Math.round(tr.replaceRate*100)}% · 裁员风险：${tr.layoffRisk}</div>
-          </button>`).join('')}
-        </div>
-        <button class="btn primary" id="g-go" style="width:100%;">正式入职开启职场 →</button>
-      `,
-      onDone: (host, finish) => {
-        host.querySelectorAll('[data-c]').forEach(b => { b.onclick = () => { selCity = Number(b.dataset.c); show(); }; });
-        host.querySelectorAll('[data-tr]').forEach(b => { b.onclick = () => { selTrack = b.dataset.tr; show(); }; });
-        host.querySelector('#g-go').onclick = () => {
+  const buildBody = () => `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+      ${[1,2,3].map(t => `<button class="pill-btn ${selCity===t?'primary':''}" data-c="${t}">${CITIES[t].name.slice(0,4)}</button>`).join('')}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      ${TRACKS.map(tr => `<button class="action-card" style="${selTrack===tr.id?'border-color:var(--accent);background:var(--accent-soft);':''}" data-tr="${tr.id}">
+        <div class="ac-top"><span>${tr.name.slice(0,11)}</span><span>拐点${tr.capAge}岁</span></div>
+        <div class="ac-sub">退休替代率 ${Math.round(tr.replaceRate*100)}% · 裁员风险：${tr.layoffRisk}</div>
+      </button>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:center;padding-bottom:6px;">
+      <button class="cta-main" id="g-go" style="width:78%;max-width:250px;">正式入职开启职场 →</button>
+    </div>
+  `;
+
+  showV3Capture({
+    compactViewfinder: true,
+    badge: `毕业择城 · ${state.age}岁`,
+    title: '选择你的奋斗城市与职业曲线',
+    photoCaption: `${state.age}岁毕业初入社会`,
+    bodyHtml: buildBody(),
+    onDone: (host, finish) => {
+      const bindGrad = () => {
+        const box = host.querySelector('#v3-content');
+        box.querySelectorAll('[data-c]').forEach(b => {
+          b.onclick = () => { selCity = Number(b.dataset.c); box.innerHTML = buildBody(); bindGrad(); };
+        });
+        box.querySelectorAll('[data-tr]').forEach(b => {
+          b.onclick = () => { selTrack = b.dataset.tr; box.innerHTML = buildBody(); bindGrad(); };
+        });
+        box.querySelector('#g-go').onclick = () => {
           state.cityTier = selCity; state.track = TRACKS.find(x => x.id === selTrack);
-          finish(); showToast(`落脚${CITIES[selCity].name.slice(0,4)}，开启职场新篇章！`);
+          finish();
+          if (afterDone) afterDone();
+          else showToast(`落脚${CITIES[selCity].name.slice(0,4)}，开启职场新篇章！`);
         };
-      }
-    });
-  }
-  show();
+      };
+      bindGrad();
+    }
+  });
 }
 
-function showYearEndV3(rep) {
+function showYearEndV3(rep, afterDone) {
   const isMilestone = [18, 30, 50, 60, 80].includes(rep.age);
   const html = `
     <ul style="font-size:13px;padding-left:18px;margin:0 0 12px;line-height:1.65;">
@@ -1339,21 +1861,22 @@ function showYearEndV3(rep) {
     </div>
     ${rep.canExtend
       ? `<div style="display:flex;gap:8px;"><button class="btn secondary" id="y-ext" style="flex:1;">延寿至 90 岁</button><button class="btn primary" id="y-end" style="flex:1;">80 岁圆满收官</button></div>`
-      : `<button class="btn primary" id="y-ok" style="width:100%;">迈入 ${state.age} 岁 →</button>`}
+      : `<div style="display:flex;justify-content:center;"><button class="cta-main" id="y-ok" style="width:74%;max-width:236px;">迈入 ${state.age} 岁 →</button></div>`}
   `;
 
   if (isMilestone) {
     showV3Capture({
+      compactViewfinder: true,
       badge: `${rep.age} 岁里程碑 · 年度决算`,
       title: `${rep.age} 岁这一年定格入册`,
       photoCaption: `${rep.age}岁里程碑定格`,
       bodyHtml: html,
       onDone: (host, finish) => {
         if (rep.canExtend) {
-          host.querySelector('#y-ext').onclick = () => { state.extendedTo90 = true; finish(); };
+          host.querySelector('#y-ext').onclick = () => { state.extendedTo90 = true; finish(); if (afterDone) afterDone(); };
           host.querySelector('#y-end').onclick = () => { state.ended = true; state.endReason = '80 岁圆满收官'; finish(); };
         } else {
-          host.querySelector('#y-ok').onclick = finish;
+          host.querySelector('#y-ok').onclick = () => { finish(); if (afterDone) afterDone(); };
         }
       }
     });
@@ -1363,7 +1886,7 @@ function showYearEndV3(rep) {
       <h3 style="margin:8px 0;">这一年的账单与收获</h3>
       ${html}
     </div></div>`, host => {
-      host.querySelector('#y-ok').onclick = () => { clearOverlay(); render(); };
+      host.querySelector('#y-ok').onclick = () => { clearOverlay(); render(); if (afterDone) afterDone(); };
     });
   }
 }
@@ -1371,12 +1894,20 @@ function showYearEndV3(rep) {
 // ===== 重大决策与 P0 小游戏底部抽屉 =====
 function launchFlipGame() {
   state.flipGameThisYear++;
+  const boost = hasHex(state, 'hx_arcade_pro') ? 1.4 : 1.0;
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box" id="mg-box"></div></div>`, host => {
     openFlipCardGame(host.querySelector('#mg-box'), state, res => {
-      state.cash += res.cash || 0;
-      state.stats.mood = clamp(state.stats.mood + (res.mood || 0));
+      const cashGain = Math.round((res.cash || 0) * boost);
+      const moodGain = (res.mood || 0) + (hasHex(state, 'hx_arcade_pro') ? 2 : 0);
+      state.cash += cashGain;
+      state.stats.mood = clamp(state.stats.mood + moodGain);
       state.stats.knowledge = clamp(state.stats.knowledge + (res.know || 0));
-      clearOverlay(); showToast(`翻卡博弈：${res.note}`);
+      let ticketNote = '';
+      if ((res.count || 0) >= 4) {
+        state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
+        ticketNote = ' · S 评级奖命运重随券 +1！';
+      }
+      clearOverlay(); showToast(`翻卡博弈：${res.note}${ticketNote}`);
     });
   });
 }
@@ -1385,8 +1916,13 @@ function launchHomePuzzle() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box" id="mg-box"></div></div>`, host => {
     openHomePuzzleGame(host.querySelector('#mg-box'), state, res => {
       if (state.house) state.house.buffActive = res.buffActive;
-      state.stats.mood = clamp(state.stats.mood + (res.mood || 0));
-      clearOverlay(); showToast(`空间拼图：${res.note}`);
+      state.stats.mood = clamp(state.stats.mood + (res.mood || 0) + (hasHex(state, 'hx_arcade_pro') ? 2 : 0));
+      let ticketNote = '';
+      if ((res.score || 0) >= 14) {
+        state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
+        ticketNote = ' · 完美布局奖重随券 +1！';
+      }
+      clearOverlay(); showToast(`空间拼图：${res.note}${ticketNote}`);
     });
   });
 }
@@ -1394,7 +1930,7 @@ function launchHomePuzzle() {
 function launchGomokuGame() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box" id="mg-box"></div></div>`, host => {
     openGomokuGame(host.querySelector('#mg-box'), state, res => {
-      state.stats.mood = clamp(state.stats.mood + (res.mood || 0));
+      state.stats.mood = clamp(state.stats.mood + (res.mood || 0) + (hasHex(state, 'hx_arcade_pro') ? 2 : 0));
       state.relations.friend.intimacy = clamp(state.relations.friend.intimacy + (res.intimacy || 0));
       if (res.antiScam && !state.experiences.includes('exp_anti_scam')) state.experiences.push('exp_anti_scam');
       clearOverlay(); showToast(`石桌五子棋：${res.note}`);
@@ -1402,48 +1938,163 @@ function launchGomokuGame() {
   });
 }
 
-function openHouseSheet() {
-  const city = CITIES[state.cityTier];
-  mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">🏠 房产买卖（${city.name.slice(0,4)}）</h3>
-    ${state.house ? `<div class="mg-stats">当前：<b>${state.house.name}</b> · 估值 ${fmtMoney(state.house.value)} · 余贷 ${fmtMoney(state.house.loan)}<br/><button class="btn secondary" id="sell-h" style="margin-top:6px;">卖出当前房 (扣2%税费)</button></div>` : ''}
-    <div style="display:flex;flex-direction:column;gap:7px;">
-      ${city.houses.map(h => {
-        const dp = Math.round(h.price * 0.3);
-        return `<button class="action-card" data-buy="${h.id}" ${state.house?'disabled':''}>
-          <div class="ac-top"><span>${h.tier}房 (${fmtMoney(h.price)})</span><span>${h.grid}×${h.grid}网格</span></div>
-          <div class="ac-sub">首付 ${fmtMoney(dp)}（含父母可支援 ${fmtMoney(state.parentSupportLeft)}）· 月供 ${monthlyPmt(h.price-dp).toLocaleString()}</div>
-        </button>`;
-      }).join('')}
-    </div>
-    <div class="mg-actions"><button class="btn ghost" id="c">关闭</button></div>
-  </div></div>`, host => {
-    host.querySelector('#c').onclick = clearOverlay;
-    const sell = host.querySelector('#sell-h');
-    if (sell) sell.onclick = () => {
-      const net = Math.round(state.house.value * 0.98) - state.house.loan;
-      if (state.cash + net < 0) return showToast('现金不足以补齐余贷差额');
-      state.cash += net; state.house = null; clearOverlay(); showToast(`卖房落袋 ${fmtMoney(net)}`);
-    };
-    host.querySelectorAll('[data-buy]').forEach(b => {
-      b.onclick = () => {
-        const h = city.houses.find(x => x.id === b.dataset.buy);
-        const dp = Math.round(h.price * 0.3);
-        const sup = Math.min(state.parentSupportLeft, Math.max(0, dp - state.cash));
-        if (state.cash + sup < dp) return showToast(`资金不足，需首付 ${fmtMoney(dp)}`);
-        state.parentSupportLeft -= sup; state.cash -= (dp - sup);
-        state.house = { id: h.id, tier: h.tier, name: h.label, value: h.price, basePrice: h.price, loan: h.price - dp, pmtMo: monthlyPmt(h.price - dp), grid: h.grid, buffActive: false };
-        state.albumPhotos.push({ age: state.age, stamp: getDateStamp(state.age, state.subTurn), title: `购入${h.tier}房安家`, stageIdx: getSubStageIndex(state.age), bg: getBgKey(state.age) });
-        clearOverlay(); launchHomePuzzle();
+// ===== 童年「校门口小卖部」手账弹窗 =====
+function openTuckShopSheet() {
+  ensureSprint1State(state);
+  const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
+  const packPrice = Math.round(15 * disc);
+
+  const renderTuck = () => {
+    const ownedCards = state.snackCards || [];
+    mountOverlay(`<div class="sheet-modal"><div class="sheet-box" style="max-height:84%;display:flex;flex-direction:column;">
+      <div class="sec-head-row" style="margin-bottom:6px;">
+        <span class="sec-title">${pxIcon('shop', 17)} 校门口小卖部</span>
+        <span class="tag up">零花 ¥${fmtMoney(state.cash)}</span>
+      </div>
+      <div style="flex:1;overflow-y:auto;min-height:0;">
+        <div class="mg-stats" style="margin-bottom:6px;">
+          <b>干脆面水浒卡 (${ownedCards.length}/12)</b> · 集齐 4/8/12 张送现金 + 命运重随券！
+        </div>
+        <button class="btn primary" id="tk-draw" style="width:100%;margin-bottom:4px;">${pxIcon('snack', 15)} 买包干脆面拆水浒卡 (-¥${packPrice} · 心态+1)</button>
+        <div class="tuck-card-grid">
+          ${TUCK_CARDS_12.map(c => {
+            const has = ownedCards.includes(c);
+            return `<div class="tuck-card-chip ${has ? 'owned' : ''}">${has ? c.slice(3) : c.slice(0, 2) + ' ???'}</div>`;
+          }).join('')}
+        </div>
+
+        <div class="sec-head-row" style="margin:6px 0 2px;">
+          <span class="sec-title" style="font-size:13px;">${pxIcon('gift', 15)} 怀旧小物件（入驻木格旧物盒）</span>
+        </div>
+        <div class="tuck-goods-grid">
+          ${TUCK_GOODS.map(g => {
+            const owned = state.items.includes(g.item);
+            const p = Math.round(g.cost * disc);
+            return `<button class="tuck-good-btn" data-tg="${g.id}" ${owned ? 'disabled' : ''}>
+              <div class="tuck-good-top"><span>${pxIcon(g.ico, 14)} ${g.name}</span><span style="color:var(--accent);">${owned ? '已珍藏' : `¥${p}`}</span></div>
+              <div class="tuck-good-desc">${g.desc}</div>
+            </button>`;
+          }).join('')}
+        </div>
+
+        <div class="sec-head-row" style="margin:6px 0 4px;">
+          <span class="sec-title" style="font-size:13px;">${pxIcon('heart', 15)} 买小零食送亲友（每季限 1 次 · ¥30）</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="pill-btn soft" id="tk-gf" style="flex:1;" ${state.tuckGiftThisTurn ? 'disabled' : ''}>请同桌吃零食 (+4亲密)</button>
+          <button class="pill-btn soft" id="tk-gp" style="flex:1;" ${state.tuckGiftThisTurn ? 'disabled' : ''}>给爸妈买板栗 (+4亲密)</button>
+        </div>
+      </div>
+      <div class="mg-actions" style="margin-top:8px;"><button class="btn ghost" id="tk-close" style="width:100%;">背上书包回家</button></div>
+    </div></div>`, host => {
+      host.querySelector('#tk-close').onclick = () => { clearOverlay(); render(); };
+      host.querySelector('#tk-draw').onclick = () => {
+        const res = drawSnackCard(state);
+        saveAutoProgress();
+        renderTuck();
+        showToast(res.msg);
+      };
+      host.querySelectorAll('[data-tg]').forEach(b => {
+        b.onclick = () => {
+          const res = buyTuckGood(state, b.dataset.tg);
+          saveAutoProgress();
+          renderTuck();
+          showToast(res.msg);
+        };
+      });
+      host.querySelector('#tk-gf').onclick = () => {
+        const res = buyTuckGift(state, 'friend');
+        saveAutoProgress();
+        renderTuck();
+        showToast(res.msg);
+      };
+      host.querySelector('#tk-gp').onclick = () => {
+        const res = buyTuckGift(state, 'parents');
+        saveAutoProgress();
+        renderTuck();
+        showToast(res.msg);
       };
     });
-  });
+  };
+  renderTuck();
+}
+
+// ===== 成年「周末实景看房手账」（动态 3 套特色房源 + 中介换批）=====
+function openHouseSheet() {
+  const city = CITIES[state.cityTier];
+  const freeSellTax = hasHex(state, 'hx_bargain_hunter') || hasHex(state, 'hx_shop_3') || getBondTier(state, 'wealth') >= 4;
+
+  const renderListings = (forceReroll = false) => {
+    const listings = getOrRollHouseListings(state, forceReroll);
+    mountOverlay(`<div class="sheet-modal"><div class="sheet-box" style="max-height:84%;display:flex;flex-direction:column;">
+      <div class="sec-head-row" style="margin-bottom:6px;">
+        <span class="sec-title">${pxIcon('key', 17)} 周末实景看房（${city.name.slice(0,4)}）</span>
+        <span class="tag up">可用 ¥${fmtMoney(state.cash)}</span>
+      </div>
+      <div style="flex:1;overflow-y:auto;min-height:0;">
+        ${state.house ? `<div class="mg-stats" style="margin-bottom:8px;">当前：<b>${state.house.name}</b> · 估值 ¥${fmtMoney(state.house.value)} · 余贷 ¥${fmtMoney(state.house.loan)}<br/><button class="btn secondary" id="sell-h" style="margin-top:6px;">卖出当前房 (${freeSellTax ? '海克斯免税!' : '扣2%税费'})</button></div>` : ''}
+        <p class="mg-tip" style="margin:0 0 7px;">本季实景看房刷出 3 套特色房源（父母可支援首付 ¥${fmtMoney(state.parentSupportLeft)}）：</p>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${listings.map((h, i) => `
+            <button class="listing-card ${h.trait === 'bargain' ? 'bargain' : ''}" data-buy-idx="${i}" ${state.house ? 'disabled' : ''}>
+              <div class="listing-top">
+                <span class="listing-badge">${h.badge} · ${h.grid}×${h.grid}网格</span>
+                <span class="listing-price">¥${fmtMoney(h.price)}</span>
+              </div>
+              <div class="listing-name">${h.name}</div>
+              <div class="listing-perk">★ ${h.perk}</div>
+              <div class="listing-sub">首付 ¥${fmtMoney(h.dp)}${h.pbCut > 0 ? `（存钱罐直减 ¥${h.pbCut.toLocaleString()}）` : ''} · 月供 ¥${monthlyPmt(h.price - h.dp).toLocaleString()}</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="mg-actions" style="margin-top:8px;display:flex;gap:8px;">
+        ${!state.house ? `<button class="btn secondary" id="h-reroll" style="flex:1;">换一批房源 (-¥200)</button>` : ''}
+        <button class="btn ghost" id="c" style="flex:${state.house ? '1' : '0 0 90px'};">收起</button>
+      </div>
+    </div></div>`, host => {
+      host.querySelector('#c').onclick = () => { clearOverlay(); render(); };
+      const rr = host.querySelector('#h-reroll');
+      if (rr) rr.onclick = () => {
+        if (state.cash < 200) return showToast('现金不足 ¥200 看房交通费');
+        state.cash -= 200;
+        saveAutoProgress();
+        renderListings(true);
+        showToast('中介带你又看了 3 套新房源！');
+      };
+      const sell = host.querySelector('#sell-h');
+      if (sell) sell.onclick = () => {
+        const net = Math.round(state.house.value * (freeSellTax ? 1.0 : 0.98)) - state.house.loan;
+        if (state.cash + net < 0) return showToast('现金不足以补齐余贷差额');
+        state.cash += net; state.house = null; clearOverlay(); render(); showToast(`卖房落袋 ¥${fmtMoney(net)}`);
+      };
+      host.querySelectorAll('[data-buy-idx]').forEach(b => {
+        b.onclick = () => {
+          const h = listings[Number(b.dataset.buyIdx)];
+          const sup = Math.min(state.parentSupportLeft, Math.max(0, h.dp - state.cash));
+          if (state.cash + sup < h.dp) return showToast(`资金不足，需首付 ¥${fmtMoney(h.dp)}`);
+          state.parentSupportLeft -= sup; state.cash -= (h.dp - sup);
+          state.house = {
+            id: h.id, tier: h.tier, name: h.name, trait: h.trait,
+            value: h.price, basePrice: h.price, loan: h.price - h.dp,
+            pmtMo: monthlyPmt(h.price - h.dp), grid: h.grid, buffActive: false
+          };
+          state.albumPhotos.push({ age: state.age, stamp: getDateStamp(state.age, state.subTurn), title: `购入「${h.name}」安家`, stageIdx: getSubStageIndex(state.age), bg: getBgKey(state.age) });
+          clearOverlay(); launchHomePuzzle();
+        };
+      });
+    });
+  };
+  renderListings(false);
 }
 
 function openGoldSheet() {
-  const hand = Math.round(state.goldPrice * 10 * 1.01);
+  const noFee = hasHex(state, 'hx_shop_3') || getBondTier(state, 'wealth') >= 4;
+  const buyMult = noFee ? 1.0 : 1.01;
+  const sellMult = noFee ? 1.0 : 0.99;
+  const hand = Math.round(state.goldPrice * 10 * buyMult);
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">🪙 黄金避险 (${state.goldPrice} 元/克)</h3>
+    <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('gold', 17)} 黄金避险 (${state.goldPrice} 元/克${noFee ? ' · 免手续费' : ''})</h3>
     <div class="mg-stats">当前持仓：<b>${Math.round(state.goldGrams)} 克</b>（约 ${fmtMoney(state.goldGrams * state.goldPrice)}）</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn primary" id="gb10">买 10 克 (-${fmtMoney(hand)})</button>
@@ -1454,15 +2105,19 @@ function openGoldSheet() {
   </div></div>`, host => {
     host.querySelector('#c').onclick = clearOverlay;
     const buy = g => {
-      const cost = Math.round(state.goldPrice * g * 1.01);
+      const cost = Math.round(state.goldPrice * g * buyMult);
       if (state.cash < cost) return showToast('可用现金不足');
-      state.cash -= cost; state.goldGrams += g; clearOverlay(); showToast(`买入黄金 ${g} 克`);
+      const prevVal = (state.goldGrams || 0) * (state.goldAvgCost || state.goldPrice);
+      state.cash -= cost;
+      state.goldGrams += g;
+      state.goldAvgCost = Math.round((prevVal + cost) / state.goldGrams);
+      clearOverlay(); render(); showToast(`买入黄金 ${g} 克`);
     };
     host.querySelector('#gb10').onclick = () => buy(10);
     host.querySelector('#gb100').onclick = () => buy(100);
     host.querySelector('#gsall').onclick = () => {
-      const earn = Math.round(state.goldGrams * state.goldPrice * 0.99);
-      state.cash += earn; state.goldGrams = 0; clearOverlay(); showToast(`卖出黄金落袋 ${fmtMoney(earn)}`);
+      const earn = Math.round(state.goldGrams * state.goldPrice * sellMult);
+      state.cash += earn; state.goldGrams = 0; clearOverlay(); render(); showToast(`卖出黄金落袋 ${fmtMoney(earn)}`);
     };
   });
 }
@@ -1470,20 +2125,23 @@ function openGoldSheet() {
 function handleLottery() {
   if (state.cash < 20) return showToast('现金不足 20 元');
   state.cash -= 20; state.stats.mood = clamp(state.stats.mood + 1); state.lotteryThisTurn = true;
-  const koi = (state.talent.id === 't_koi' || state.talent.id === 't_koi2') ? 10 : 1;
+  const koi = ((state.talent.id === 't_koi' || state.talent.id === 't_koi2') ? 10 : 1) * (hasHex(state, 'hx_koi_god') ? 20 : 1) * (getBondTier(state, 'luck') >= 4 ? 5 : 1);
   const r = Math.random();
-  if (r < (1 / 500000) * koi) { state.cash += 4000000; showToast('🎉 万中无一头奖！税后 400 万到账！'); }
-  else if (r < 0.0005) { state.cash += 3000; showToast('🎊 彩票中三等奖 3,000 元！'); }
-  else if (r < 0.0055) { state.cash += 200; showToast('✨ 彩票中 200 元小奖！'); }
-  else if (r < 0.0555) { state.cash += 20; showToast('😄 刚好回本 20 元，心态 +1'); }
-  else showToast('🎟️ 谢谢惠顾！花 20 块买了个晚上的白日梦（心态 +1）');
+  if (r < (1 / 500000) * koi) { state.cash += 4000000; showToast('万中无一头奖！税后 400 万到账！'); }
+  else if (r < 0.0005 * (hasHex(state, 'hx_koi_god') ? 4 : 1)) { state.cash += 3000; showToast('彩票中三等奖 3,000 元！'); }
+  else if (r < 0.0055 * (getBondTier(state, 'luck') >= 2 ? 2 : 1)) { state.cash += 200; showToast('彩票中 200 元小奖！'); }
+  else if (r < 0.0555 || getBondTier(state, 'luck') >= 4) { state.cash += 20; showToast('保底回本 20 元，心态 +1'); }
+  else showToast('谢谢惠顾！花 20 块买了个晚上的白日梦（心态 +1）');
 }
 
 function openEmoSheet() {
+  if (hasHex(state, 'hx_minimalist')) {
+    return showToast('受「极简生活」约束不能用情绪消费（已为你省下 18% 杂费并多给排程格！）');
+  }
   const half = state.emoBuyThisYear >= 1;
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 6px;">🛍️ 情绪买单</h3>
-    <p class="mg-tip">${half ? '⚠️ 本年已使用过，本次效果减半' : '用现金即时换取心态回暖与减压（每回合限 1 次）'}</p>
+    <h3 style="margin:0 0 6px;display:flex;align-items:center;gap:6px;">${pxIcon('gift', 17)} 情绪买单</h3>
+    <p class="mg-tip">${half ? '提示：本年已用过一次，本次效果减半' : '用现金即时换取心态回暖与减压（每季限 1 次）'}</p>
     <div style="display:flex;flex-direction:column;gap:7px;">
       <button class="action-card" data-eb="300,4,2"><div class="ac-top"><span>吃顿大餐</span><span>-300元</span></div><div class="ac-sub">心态 +${half?2:4} / 疲劳 -${half?1:2}</div></button>
       <button class="action-card" data-eb="2000,6,3"><div class="ac-top"><span>买数码 / 盲盒</span><span>-2,000元</span></div><div class="ac-sub">心态 +${half?3:6} / 疲劳 -${half?1:3}</div></button>
@@ -1500,7 +2158,7 @@ function openEmoSheet() {
         state.stats.mood = clamp(state.stats.mood + (half ? Math.floor(mo/2) : mo));
         state.stats.fatigue = clamp(state.stats.fatigue - (half ? Math.floor(fa/2) : fa));
         state.emoBuyThisYear++; state.emoBuyThisTurn = true;
-        clearOverlay(); showToast('奖励了自己一下，心情舒畅多了！');
+        clearOverlay(); render(); showToast('奖励了自己一下，心情舒畅多了！');
       };
     });
   });
@@ -1508,16 +2166,18 @@ function openEmoSheet() {
 
 function handlePromo() {
   const nextL = state.jobLevel + 1;
-  if (state.stats.pro < PROMO_REQ[nextL] || state.projectCount < nextL - 1) {
-    return showToast(`晋升 L${nextL} 需专业≥${PROMO_REQ[nextL]} 且项目经历≥${nextL - 1}`);
+  const effPro = state.stats.pro + (hasHex(state, 'hx_duo_passion') ? Math.floor((state.dreamSkill || 0) * 0.5) : 0);
+  const exemptProj = getBondTier(state, 'scholar') >= 4;
+  if (effPro < PROMO_REQ[nextL] || (!exemptProj && state.projectCount < nextL - 1)) {
+    return showToast(`晋升 L${nextL} 需专业≥${PROMO_REQ[nextL]}${exemptProj ? '' : ` 且项目经历≥${nextL - 1}`}`);
   }
   state.jobLevel = nextL; state.yearsInLevel = 0; state.stats.mood = clamp(state.stats.mood + 6);
-  showToast(`🎉 成功晋升至 L${nextL}！薪资台阶跃迁！`);
+  showToast(`成功晋升至 L${nextL}！薪资台阶跃迁！`);
 }
 
 function openLoveSheet() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">💘 结识伴侣（3 档背景可见）</h3>
+    <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('heart', 17)} 结识伴侣（3 档背景可见）</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
       ${SPOUSE_BACKGROUNDS.map(sp => `<button class="action-card" data-sp="${sp.id}"><div class="ac-top"><span>${sp.name}</span><span>合账 ×${sp.incomeMult}</span></div><div class="ac-sub">${sp.desc}</div></button>`).join('')}
     </div>
@@ -1528,7 +2188,7 @@ function openLoveSheet() {
       b.onclick = () => {
         const sp = SPOUSE_BACKGROUNDS.find(x => x.id === b.dataset.sp);
         state.relations.partner = { name: sp.name, bgId: sp.id, incomeMult: sp.incomeMult, intimacy: 50, married: false, missedTurns: 0 };
-        clearOverlay(); showToast(`开启恋爱线：${sp.name}`);
+        clearOverlay(); render(); showToast(`开启恋爱线：${sp.name}`);
       };
     });
   });
@@ -1538,7 +2198,7 @@ function openMarrySheet() {
   const p = state.relations.partner;
   if (p.intimacy < 60) return showToast(`谈婚论嫁需伴侣亲密 ≥60（当前 ${p.intimacy}）`);
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">💍 谈婚论嫁（开启双收入合账）</h3>
+    <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('heart', 17)} 谈婚论嫁（开启双收入合账）</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
       <button class="action-card" data-w="30000,4" ${p.intimacy<75?'disabled':''}><div class="ac-top"><span>极简领证</span><span>-3万 (需亲密≥75)</span></div></button>
       <button class="action-card" data-w="250000,10"><div class="ac-top"><span>体面婚礼</span><span>-25万 (亲密+10)</span></div></button>
@@ -1553,7 +2213,7 @@ function openMarrySheet() {
         if (state.cash < cost) return showToast('可用现金不足');
         state.cash -= cost; p.married = true; p.intimacy = clamp(p.intimacy + g);
         state.albumPhotos.push({ age: state.age, stamp: getDateStamp(state.age, state.subTurn), title: '步入婚姻殿堂', stageIdx: getSubStageIndex(state.age), bg: getBgKey(state.age) });
-        clearOverlay(); showToast('💍 恭喜成家！开启双收入合账');
+        clearOverlay(); render(); showToast('恭喜成家！开启双收入合账');
       };
     });
   });
@@ -1561,7 +2221,7 @@ function openMarrySheet() {
 
 function openKidSheet() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">👶 生娃 / 自主丁克抉择</h3>
+    <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('baby', 17)} 生娃 / 自主丁克抉择</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
       <button class="action-card" data-k="25000"><div class="ac-top"><span>生娃 · 刚需穷养</span><span>2.5万/年</span></div></button>
       <button class="action-card" data-k="50000"><div class="ac-top"><span>生娃 · 中产常规</span><span>5万/年</span></div></button>
@@ -1571,42 +2231,20 @@ function openKidSheet() {
     <div class="mg-actions"><button class="btn ghost" id="c">暂缓</button></div>
   </div></div>`, host => {
     host.querySelector('#c').onclick = clearOverlay;
-    host.querySelector('#k-dink').onclick = () => { state.choseDink = true; clearOverlay(); showToast('选择自由丁克人生！'); };
+    host.querySelector('#k-dink').onclick = () => { state.choseDink = true; clearOverlay(); render(); showToast('选择自由丁克人生！'); };
     host.querySelectorAll('[data-k]').forEach(b => {
       b.onclick = () => {
         state.child = { bornAge: state.age, tierCost: Number(b.dataset.k), study: 20, mood: 75, bond: 65 };
         state.albumPhotos.push({ age: state.age, stamp: getDateStamp(state.age, state.subTurn), title: '迎来家庭新成员', stageIdx: getSubStageIndex(state.age), bg: getBgKey(state.age) });
-        clearOverlay(); showToast('👶 新生命降临！解锁 3 维孩子档案卡');
+        clearOverlay(); render(); showToast('新生命降临！解锁孩子成长档案卡');
       };
-    });
-  });
-}
-
-function openDreamSheet() {
-  const limit = state.age >= 19 ? 2 : 5;
-  mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">⭐ v1.4 五梦想主线（18岁后聚焦 1–2 条）</h3>
-    <div style="display:flex;flex-direction:column;gap:7px;">
-      ${DREAMS.map(d => {
-        const has = state.activeDreams.some(x => x.id === d.id);
-        return `<button class="action-card" data-d="${d.id}" ${has || state.activeDreams.length >= limit ? 'disabled' : ''}>
-          <div class="ac-top"><span>${d.name}</span><span>${has?'✅已开启':'开启'}</span></div>
-          <div class="ac-sub">${d.desc}</div>
-        </button>`;
-      }).join('')}
-    </div>
-    <div class="mg-actions"><button class="btn ghost" id="c">关闭</button></div>
-  </div></div>`, host => {
-    host.querySelector('#c').onclick = clearOverlay;
-    host.querySelectorAll('[data-d]').forEach(b => {
-      b.onclick = () => { state.activeDreams.push(DREAMS.find(x => x.id === b.dataset.d)); clearOverlay(); showToast('点亮梦想主线！'); };
     });
   });
 }
 
 function openCitySheet() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
-    <h3 style="margin:0 0 8px;">🚄 中途换城</h3>
+    <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('trip', 17)} 中途换城</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
       ${[1,2,3].map(t => `<button class="action-card" data-ct="${t}" ${state.cityTier===t?'disabled':''}>
         <div class="ac-top"><span>${CITIES[t].name}</span><span>×${CITIES[t].salaryCoef}</span></div>
@@ -1616,12 +2254,12 @@ function openCitySheet() {
   </div></div>`, host => {
     host.querySelector('#c').onclick = clearOverlay;
     host.querySelectorAll('[data-ct]').forEach(b => {
-      b.onclick = () => { state.cityTier = Number(b.dataset.ct); clearOverlay(); showToast(`迁居至${CITIES[state.cityTier].name.slice(0,4)}`); };
+      b.onclick = () => { state.cityTier = Number(b.dataset.ct); clearOverlay(); render(); showToast(`迁居至${CITIES[state.cityTier].name.slice(0,4)}`); };
     });
   });
 }
 
-// 独立「📰 时代简报」手账剪报弹窗（彻底移出拍立得白边）
+// 独立「时代简报」手账剪报弹窗
 function openEraNewspaper() {
   const era = getCurrentEra(state);
   const stamp = getDateStamp(state.age, state.subTurn);
@@ -1630,7 +2268,7 @@ function openEraNewspaper() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
     <div class="newspaper-box">
       <div class="newspaper-head">
-        <b style="font-size:16px;">📰 时代简报 · ${era.name}</b>
+        <b style="font-size:16px;display:flex;align-items:center;gap:6px;">${pxIcon('news', 16)} 时代简报 · ${era.name}</b>
         <span style="font-family:monospace;font-size:12px;color:var(--muted);">${stamp}</span>
       </div>
       <p style="font-size:13px;margin:0 0 10px;line-height:1.6;">${getNextYearHint(state)}</p>
@@ -1758,14 +2396,20 @@ function renderMemorial() {
   appEl.querySelectorAll('[data-rb]').forEach(b => {
     b.onclick = () => {
       const a = Number(b.dataset.rb);
-      const saved = JSON.parse(state.branches[a]);
+      const saved = ensureSprint1State(JSON.parse(state.branches[a]));
       saved.branches = state.branches; saved.ended = false;
-      state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home'; render();
+      state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home';
+      saveAutoProgress();
+      render();
     };
   });
   appEl.querySelector('#btn-restart').onclick = () => {
-    state = null; rerollUsed = false; pickedOrigin = rollOrigin(); pickedTalent = pickedOrigin.talents[0].id; renderIntro();
+    clearAutoSave();
+    state = null; introStep = 0; rerollUsed = false;
+    pickedOrigin = rollOrigin(); pickedTalent = pickedOrigin.talents[0].id;
+    renderIntro();
   };
+  clearAutoSave();
 }
 
 initSpritesAndRender();
