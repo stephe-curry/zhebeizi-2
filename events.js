@@ -2,13 +2,13 @@
 // 红线声明：本文件全部事件为结构化机制卡壳（audit_stage: 'MECHANIC_SHELL'），严格保留 review_status 硬门禁，
 // 供第 4 步批量替换为人工审定文学正文；严禁包含任何 AI 自动生成的长段剧情对话。
 
-import { SUB_STAGES, DREAMS } from './data.js?v=s31';
-import { hasHex, getBondTier } from './hextech.js?v=s31';
-import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s31';
+import { SUB_STAGES, DREAMS } from './data.js?v=s40';
+import { hasHex, getBondTier } from './hextech.js?v=s40';
+import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s40';
 import {
   ensureDreamState, DREAM_CATALOG, addKeepsakeWithStory,
   settleDreamQualifier, settleDreamClimax, applyGracefulPivot, syncLegacyDreamFields
-} from './dreams.js?v=s31';
+} from './dreams.js?v=s40';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));

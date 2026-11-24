@@ -2,8 +2,8 @@
 // 全部采用原生 Canvas / 轻像素手绘矢量渲染，0 外部图片体积，支持移动端单指按住/划屏/连点与一键保底结算。
 // 严格遵循纯中文零系统表情符号规范。
 
-import { pxIcon } from './icons.js?v=s31';
-import { triggerHaptic } from './vfxAndUi.js?v=s31';
+import { pxIcon } from './icons.js?v=s40';
+import { triggerHaptic } from './vfxAndUi.js?v=s40';
 
 export function rollStageArcadeMoment(state, draftIds = []) {
   if (!Array.isArray(state.seenArcadeMoments)) state.seenArcadeMoments = [];
@@ -45,15 +45,59 @@ export function rollStageArcadeMoment(state, draftIds = []) {
       passEff: { mood: 2 }
     },
     {
+      id: 'sa_rhythm_8',
+      cond: state.age >= 8 && state.age <= 11 && state.subTurn >= 1,
+      badge: '小学课间 · 自动奇遇',
+      title: '大课间喇叭响起 · 广播体操领操',
+      summary: '操场高音喇叭准时响起“第八套广播体操现在开始”！体育老师把你点上水泥领操台，全班同学都在台下看着你的节拍动作！',
+      gameId: 'rhythm_master',
+      playLabel: '站上领操台踩点律动（魔性节拍大师）',
+      passLabel: '躲在队伍后排跟着比划两下',
+      passEff: { health: 1, mood: 1 }
+    },
+    {
+      id: 'sa_bug_13',
+      cond: state.age >= 12 && state.age <= 16 && state.subTurn >= 2,
+      badge: '考场惊魂 · 自动奇遇',
+      title: '交卷铃响前最后五分钟',
+      summary: '监考老师敲了敲讲台提醒还有最后五分钟收卷！你低头扫了一眼刚才匆忙算完的草稿与答卷，总觉得里面藏着几处粗心笔误！',
+      gameId: 'spot_bug',
+      playLabel: '拿起笔火眼捉虫查错卷（揪出 3 处漏洞追回考分）',
+      passLabel: '相信第一直觉提前搁笔歇会儿',
+      passEff: { mood: 2 }
+    },
+    {
       id: 'sa_dash_14',
       cond: state.age >= 14 && state.age <= 17 && state.subTurn >= 1,
       badge: '中学午休 · 自动奇遇',
       title: '下课铃响 · 狂奔冲向食堂窗口',
       summary: '第四节课老师刚合上教案喊下课，整层走廊瞬间沸腾！今天食堂一楼窗口有刚出锅的糖醋排骨，去晚两分钟就只剩青菜底了！',
       gameId: 'bell_dash',
-      playLabel: '撒腿三道冲食堂（变道跨栏抢排骨 · 健康 +2）',
-      passLabel: '慢步走过去随便吃点（健康 +1，心态 +1）',
+      playLabel: '撒腿三道冲食堂（变道跨栏抢排骨）',
+      passLabel: '慢步走过去随便吃点',
       passEff: { health: 1, mood: 1 }
+    },
+    {
+      id: 'sa_diff_17',
+      cond: (state.age >= 17 && state.age <= 21) || (state.age >= 34 && state.age <= 40),
+      badge: '旧物拾光 · 自动奇遇',
+      title: '抽屉深处翻出的两张老照片',
+      summary: '周末收拾书桌抽屉时，翻出两张同一天冲洗出来的老客厅生活照，乍一看一模一样，仔细端详却发现藏着五处微妙的时光差异！',
+      gameId: 'spot_diff',
+      playLabel: '凑近端详找出 5 处不同（时光画片大家来找茬）',
+      passLabel: '夹进书页里留作纪念',
+      passEff: { mood: 2 }
+    },
+    {
+      id: 'sa_bug_30',
+      cond: state.age >= 28 && state.age <= 36 && state.subTurn >= 2,
+      badge: '生活烟火 · 自动奇遇',
+      title: '周末超市采购 · 超长收银小票',
+      summary: '推着购物车刚出收银台，看着手里半米长的热敏打印小票总觉得总额不对劲——好像有商品被连扫或多算了单价！',
+      gameId: 'spot_bug',
+      playLabel: '当场核对小票火眼捉虫（揪出 3 处多算猫腻退赔）',
+      passLabel: '懒得排队核对直接拎袋回家',
+      passEff: { mood: 1 }
     },
     {
       id: `sa_packet_${state.age}`,

@@ -5,16 +5,16 @@
 // 4. 「亲友梦」自然生长四阶追梦手账卡
 // 严格遵循纯中文零表情符号规范。
 
-import { CITIES } from './data.js?v=s31';
+import { CITIES } from './data.js?v=s40';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_BOND_ORDER, HEX_CARD_MAP,
   hasHex, getHexInstance, getHexBondCounts, getBondTier,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s31';
-import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s31';
-import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s31';
-import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s31';
-import { pxIcon } from './icons.js?v=s31';
+} from './hextech.js?v=s40';
+import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s40';
+import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s40';
+import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s40';
+import { pxIcon } from './icons.js?v=s40';
 
 // 移动端触感短震动（兼容微信小程序 wx.vibrateShort 与移动端浏览器）
 export function triggerHaptic(type = 'medium') {
@@ -35,58 +35,67 @@ function isLowEndDevice() {
   }
 }
 
-// ==================== 1. 双卡蓄力物理碰撞合体 Combo 演出 ====================
-export function playComboCollisionVfx(combo, isFirstDiscovery, actions, getActionMeta, state) {
+function resolveComboPairIds(combo, draftIds = []) {
+  if (!combo) return ['study_self', 'rest'];
+  if (Array.isArray(combo.req) && combo.req.length >= 2) {
+    return [combo.req[0], combo.req[1]];
+  }
+  if (combo.reqCount && combo.reqCount.id) {
+    return [combo.reqCount.id, combo.reqCount.id];
+  }
+  if (Array.isArray(combo.reqAnyOf) && combo.reqAnyOf.length >= 2) {
+    const g0 = combo.reqAnyOf[0] || [];
+    const g1 = combo.reqAnyOf[1] || [];
+    const p0 = draftIds.find(id => g0.includes(id)) || g0[0] || 'study_self';
+    const p1 = draftIds.find(id => g1.includes(id)) || g1[0] || 'rest';
+    return [p0, p1];
+  }
+  return ['study_self', 'rest'];
+}
+
+// ==================== 1. 双卡蓄力物理碰撞合体 Combo 演出（每次触发均真实双卡对撞，挂载于独立根层绝不被重绘冲掉）====================
+export function playComboCollisionVfx(combo, isFirstDiscovery, actions, getActionMeta, state, draftIds = []) {
   const frame = document.querySelector('.phone-frame');
+  const modalRoot = document.getElementById('modal-root') || document.body;
   if (!frame || !combo) return;
 
   document.querySelectorAll('.combo-collision-layer').forEach(el => el.remove());
 
-  const pairIds = combo.pair || ['study_self', 'rest'];
+  const pairIds = resolveComboPairIds(combo, draftIds);
   const actL = actions.find(a => a.id === pairIds[0]) || { id: pairIds[0], name: '行动一', cat: '1.成长与学习' };
   const actR = actions.find(a => a.id === pairIds[1]) || { id: pairIds[1], name: '行动二', cat: '6.身心与生活' };
   const metaL = getActionMeta(actL, state);
   const metaR = getActionMeta(actR, state);
 
+  const rect = frame.getBoundingClientRect();
   const layer = document.createElement('div');
   layer.className = 'combo-collision-layer';
+  layer.style.position = 'fixed';
+  layer.style.left = `${Math.round(rect.left)}px`;
+  layer.style.width = `${Math.round(rect.width)}px`;
+  layer.style.top = `${Math.round(rect.top + Math.min(54, rect.height * 0.06))}px`;
+  layer.style.height = `${Math.round(Math.min(290, rect.height * 0.36))}px`;
+  layer.style.zIndex = '999';
+
   const pills = (combo.pills || []).slice(0, 2);
+  const slamDelay = isFirstDiscovery ? 320 : 270;
+  const totalHold = isFirstDiscovery ? 1160 : 880;
 
-  if (!isFirstDiscovery) {
-    // 重复触发：0.42s 轻快碰撞微章，不拖慢中后期节奏
-    triggerHaptic('light');
-    layer.innerHTML = `
-      <div class="cc-fast-wrap">
-        <div class="cc-crest fast">
-          <div class="cc-crest-ico">${pxIcon(combo.crestIco || 'combo', 20)}</div>
-          <div class="cc-crest-title">${combo.name}</div>
-          <div class="cc-crest-pills">
-            ${pills.map((p, i) => `<span class="cc-pill ${i === 0 ? 'warm' : 'green'}">${p}</span>`).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-    frame.appendChild(layer);
-    setTimeout(() => layer.remove(), 620);
-    return;
-  }
-
-  // 首次发现该 Combo：完整播「双卡升空后仰蓄力 -> 猛撞中心白光闪帧+火花冲击波 -> 迸发四字合体纹章+新发现印记」
   layer.innerHTML = `
-    <canvas class="cc-canvas" width="390" height="320"></canvas>
-    <div class="cc-stage">
-      <div class="cc-token left">
+    <canvas class="cc-canvas" width="390" height="300"></canvas>
+    <div class="cc-stage ${isFirstDiscovery ? '' : 'repeat-mode'}">
+      <div class="cc-token left ${isFirstDiscovery ? '' : 'snappy'}">
         <div class="cc-tok-ico" style="background:${metaL.wellBg};">${pxIcon(metaL.ico, 24)}</div>
         <span>${metaL.short}</span>
       </div>
-      <div class="cc-token right">
+      <div class="cc-token right ${isFirstDiscovery ? '' : 'snappy'}">
         <div class="cc-tok-ico" style="background:${metaR.wellBg};">${pxIcon(metaR.ico, 24)}</div>
         <span>${metaR.short}</span>
       </div>
       <div class="cc-result hidden">
         <div class="cc-flash"></div>
         <div class="cc-crest">
-          <span class="cc-new-tag">新发现</span>
+          ${isFirstDiscovery ? '<span class="cc-new-tag">新收录</span>' : '<span class="cc-new-tag repeat">连携达成</span>'}
           <div class="cc-crest-ico">${pxIcon(combo.crestIco || 'combo', 24)}</div>
           <div class="cc-crest-title">${combo.name}</div>
           <div class="cc-crest-pills">
@@ -96,25 +105,31 @@ export function playComboCollisionVfx(combo, isFirstDiscovery, actions, getActio
       </div>
     </div>
   `;
-  frame.appendChild(layer);
+  modalRoot.appendChild(layer);
 
   setTimeout(() => {
-    triggerHaptic('medium');
-    frame.classList.remove('hx-shake');
-    void frame.offsetWidth;
-    frame.classList.add('hx-shake');
+    triggerHaptic(isFirstDiscovery ? 'heavy' : 'medium');
+    const curFrame = document.querySelector('.phone-frame');
+    if (curFrame) {
+      curFrame.classList.remove('hx-shake');
+      void curFrame.offsetWidth;
+      curFrame.classList.add('hx-shake');
+    }
 
     const resBox = layer.querySelector('.cc-result');
     if (resBox) resBox.classList.remove('hidden');
 
     const cv = layer.querySelector('.cc-canvas');
-    if (cv) runMiniParticleBurst(cv, 195, 160, ['#fbbf24', '#c9683a', '#fde68a', '#3b8760'], isLowEndDevice() ? 20 : 38);
-  }, 330);
+    if (cv) {
+      const pCount = isLowEndDevice() ? 18 : (isFirstDiscovery ? 38 : 26);
+      runMiniParticleBurst(cv, 195, 150, ['#fbbf24', '#c9683a', '#fde68a', '#3b8760'], pCount);
+    }
+  }, slamDelay);
 
   setTimeout(() => {
     layer.style.opacity = '0';
     setTimeout(() => layer.remove(), 220);
-  }, 1180);
+  }, totalHold);
 }
 
 function runMiniParticleBurst(cv, cx, cy, colors, count) {

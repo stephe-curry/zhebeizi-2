@@ -2,24 +2,24 @@
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS,
   ERA_TIMELINE, SUB_STAGES, PROMO_REQ, LEVEL_MULT, APPROVED_SYSTEM_ANCHORS
-} from './data.js?v=s31';
+} from './data.js?v=s40';
 import {
   HEX_NODES, HEX_CARD_MAP, hasHex, getHexInstance, getBondTier
-} from './hextech.js?v=s31';
+} from './hextech.js?v=s40';
 import {
   SEASONAL_MAP, detectCombos, rollSeasonalOfferIds
-} from './combos.js?v=s31';
+} from './combos.js?v=s40';
 import {
   getMilestoneEventForTurn, rollMidTurnRandomEvent
-} from './events.js?v=s31';
+} from './events.js?v=s40';
 import {
   advancePetYear
-} from './lifeFeatures.js?v=s31';
+} from './lifeFeatures.js?v=s40';
 import {
   ensureDreamState, getDreamScheduleActions, executeDreamAction,
   rollDreamLifecycleEvent, applyDreamAnnualPassives, syncLegacyDreamFields
-} from './dreams.js?v=s31';
-import { rollStageArcadeMoment } from './arcadeGames.js?v=s31';
+} from './dreams.js?v=s40';
+import { rollStageArcadeMoment } from './arcadeGames.js?v=s40';
 
 export function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -41,6 +41,8 @@ export function ensureSprint1State(s) {
   if (typeof s.stageHotspot === 'undefined') s.stageHotspot = null;
   if (typeof s.tuckUnlocked !== 'boolean') s.tuckUnlocked = s.age >= 7;
   if (!Array.isArray(s.snackCards)) s.snackCards = [];
+  if (typeof s.dupSnackCards !== 'number') s.dupSnackCards = 0;
+  if (!Array.isArray(s.claimedCardMilestones)) s.claimedCardMilestones = [];
   if (typeof s.tuckGiftThisTurn !== 'boolean') s.tuckGiftThisTurn = false;
   if (typeof s.houseListings === 'undefined') s.houseListings = null;
   if (!Array.isArray(s.eventFlags)) s.eventFlags = [];

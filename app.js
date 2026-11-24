@@ -2,44 +2,47 @@
 // 核心架构：V4 整屏拍立得 ⇄ V5 撕纸贴纸盘(Combo+季节限定) ⇄ 1.8s过场剧场 ⇄ 命运海克斯 2.0 ⇄ V3 定格
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS, PROMO_REQ
-} from './data.js?v=s31';
+} from './data.js?v=s40';
 import {
   clamp, monthlyPmt, getSubStage, getSubStageIndex, getDateStamp, getMacroParams,
   createInitialState, ensureSprint1State, getEffectiveFatigueLimit, getPendingHextechAge,
   getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
   getTurnSlotBudget, getAvailableActions, previewDraft, executeTurn, getNetWorth, evaluateEnding
-} from './engine.js?v=s31';
+} from './engine.js?v=s40';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_CARD_MAP, hasHex, getHexInstance,
   getHexBondCounts, getBondTier, getNewBondTriggersForCard,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s31';
+} from './hextech.js?v=s40';
 import {
   SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
-} from './combos.js?v=s31';
+} from './combos.js?v=s40';
 import {
   applyEventChoiceEffects
-} from './events.js?v=s31';
+} from './events.js?v=s40';
 import {
   getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
   TUCK_CARDS_12, TUCK_GOODS, drawSnackCard, buyTuckGood, buyTuckGift,
   getOrRollHouseListings
-} from './lifeFeatures.js?v=s31';
+} from './lifeFeatures.js?v=s40';
 import {
   applyGracefulPivot, DREAM_CATALOG, rollDreamLifecycleEvent,
   settleDreamQualifier, settleDreamClimax, addKeepsakeWithStory
-} from './dreams.js?v=s31';
+} from './dreams.js?v=s40';
 import {
   triggerHaptic, playComboCollisionVfx, openHextechV4Modal,
   renderNewAssetsTab, bindNewAssetsInteractions, renderDreamJournalSection
-} from './vfxAndUi.js?v=s31';
-import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s31';
+} from './vfxAndUi.js?v=s40';
+import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s40';
 import {
   rollStageArcadeMoment, openRingTossGame, openNostalgiaLinkGame, openBellDashGame,
   openWorkSliceGame, openRedPacketRainGame, openLakeFishingGame
-} from './arcadeGames.js?v=s31';
-import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s31';
-import { pxIcon, chevDownIcon } from './icons.js?v=s31';
+} from './arcadeGames.js?v=s40';
+import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s40';
+import { openTuckShopV2 } from './tuckShopV2.js?v=s40';
+import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s40b';
+import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s40';
+import { pxIcon, chevDownIcon } from './icons.js?v=s40';
 
 const appEl = document.getElementById('app');
 
@@ -348,13 +351,13 @@ function playTurnTheater(res, onFinish) {
         floatPops = [{ text: names, k: 'gold' }];
         render();
         const firstNew = res.newlyDiscoveredCombos?.[0];
-        playComboCollisionVfx(firstNew || combos[0], Boolean(firstNew), getAvailableActions(state), getActionMeta, state);
+        playComboCollisionVfx(firstNew || combos[0], Boolean(firstNew), getAvailableActions(state), getActionMeta, state, res.stepBeats.map(x => x.id));
         theaterState.timer = setTimeout(() => {
           stopTheater(false);
           floatPops = [];
           render();
           onFinish();
-        }, firstNew ? 920 : 620);
+        }, firstNew ? 1120 : 880);
         return;
       }
       stopTheater(false);
@@ -552,6 +555,24 @@ async function initSpritesAndRender() {
       s.hexTriggeredAges = [6, 12, 18];
       state = s;
       activeTab = 'home';
+    } else if (preset === 'eventv3') {
+      const s = createInitialState('welloff', 't_book', 'male');
+      s.age = 6; s.subTurn = 2; s.totalTurns = 2; s.hexTriggeredAges = [6];
+      state = s;
+      activeTab = 'home';
+    } else if (preset === 'tuckv2') {
+      const s = createInitialState('welloff', 't_book', 'male');
+      s.age = 8; s.subTurn = 2; s.totalTurns = 6; s.cash = 2480;
+      s.snackCards = ['01 及时雨·宋江', '02 行者·武松', '04 花和尚·鲁智深'];
+      s.dupSnackCards = 2;
+      s.hexTriggeredAges = [6];
+      state = s;
+      activeTab = 'home';
+    } else if (preset === 'gamesv4') {
+      const s = createInitialState('welloff', 't_book', 'male');
+      s.age = 12; s.subTurn = 2; s.totalTurns = 14; s.hexTriggeredAges = [6, 12];
+      state = s;
+      activeTab = 'home';
     }
   } catch (_) {}
   render();
@@ -561,6 +582,21 @@ async function initSpritesAndRender() {
   } else if (window.location.search.includes('preset=qual')) {
     const ev = rollDreamLifecycleEvent(state, ['dr_singer']);
     if (ev) setTimeout(() => showApprovedEventV3(ev, () => render(), { isMidTurn: true }), 120);
+  } else if (window.location.search.includes('preset=eventv3')) {
+    setTimeout(() => showApprovedEventV3({
+      id: 'ev_demo_blackout',
+      title: '夏夜小区突然全楼停电',
+      summary: '台灯啪地熄灭，整栋楼忽然暗下来，窗外院子里爆发出孩子们的欢呼与蝉鸣声。',
+      choices: [
+        { label: '点起白蜡烛，啃完最后两道题（学识 +2，心态 -1）', effects: { knowledge: 2, mood: -1 } },
+        { label: '跟爸妈摇着蒲扇上天台看星星（父母亲密 +4，心态 +4，疲劳 -2）', effects: { parentInt: 4, mood: 4, fatigue: -2 } }
+      ]
+    }, () => render(), { isMidTurn: true }), 120);
+  } else if (window.location.search.includes('preset=tuckv2')) {
+    setTimeout(() => openTuckShopSheet(), 120);
+  } else if (window.location.search.includes('preset=gamesv4')) {
+    const g = new URLSearchParams(window.location.search).get('g') || 'rhythm_master';
+    setTimeout(() => launchArcadeGame(g), 120);
   }
 }
 
@@ -614,6 +650,7 @@ function render() {
   }
   const pendingHexAge = getPendingHextechAge(state);
   const hexCount = state.hexCards.length;
+  const nextHexAge = HEX_NODES.find(a => a > state.age && !state.hexTriggeredAges.includes(a)) || null;
   const stageHs = (!drawerOpen && !theaterState) ? getOrRollStageHotspot(state) : null;
   const petStage = (state.pet && state.pet.alive) ? getPetLifeStage(state.pet) : null;
   let bodyHtml = '';
@@ -661,7 +698,7 @@ function render() {
             <button class="hex-btn ${pendingHexAge ? 'glow' : ''}" id="btn-hex-deck">
               ${pxIcon('hex', 15)}
               <span>${pendingHexAge ? '觉醒海克斯!' : '海克斯'}</span>
-              <span class="hex-cnt">${hexCount}/7</span>
+              <span class="hex-cnt">${hexCount}/7${!pendingHexAge && nextHexAge ? ` · ${nextHexAge}岁` : ''}</span>
               ${pendingHexAge ? '<span class="hex-dot"></span>' : ''}
             </button>
             <button class="news-btn" id="btn-news">${pxIcon('news', 15)} 时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
@@ -1189,7 +1226,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
       render();
       if (justFormed) {
         const isFirst = !state.discoveredCombos.includes(justFormed.id);
-        playComboCollisionVfx(justFormed, isFirst, actions, getActionMeta, state);
+        playComboCollisionVfx(justFormed, isFirst, actions, getActionMeta, state, draft);
       }
     };
   });
@@ -1205,27 +1242,42 @@ function bindMainEvents(actions, budget, cornerSticker) {
   });
   bind('#insp-replace', () => {
     if (inspectedId && draft.length >= budget.available) {
+      const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
       draft[draft.length - 1] = inspectedId;
       moreMenuOpen = false;
+      const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
       triggerHeroActionPreview(inspectedId, 1400);
       render();
+      if (justFormed) {
+        playComboCollisionVfx(justFormed, !state.discoveredCombos.includes(justFormed.id), actions, getActionMeta, state, draft);
+      }
     }
   });
 
   const doSmartFill = () => {
+    const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
     draft = buildSmartDraft(state, actions, budget);
     inspectedId = draft[draft.length - 1] || null;
     moreMenuOpen = false;
+    const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
     if (inspectedId) triggerHeroActionPreview(inspectedId, 1400);
     showToast('已按当前目标帮你排满，点上方 ✕ 可随时替换');
+    if (justFormed) {
+      playComboCollisionVfx(justFormed, !state.discoveredCombos.includes(justFormed.id), actions, getActionMeta, state, draft);
+    }
   };
   const doReuse = () => {
+    const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
     const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
     draft = state.lastDraft.filter(id => valid.has(id)).slice(0, budget.available);
     inspectedId = draft[draft.length - 1] || null;
     moreMenuOpen = false;
+    const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
     if (inspectedId) triggerHeroActionPreview(inspectedId, 1400);
     render();
+    if (justFormed) {
+      playComboCollisionVfx(justFormed, !state.discoveredCombos.includes(justFormed.id), actions, getActionMeta, state, draft);
+    }
   };
 
   bind('#v5-smart', doSmartFill);
@@ -1237,10 +1289,15 @@ function bindMainEvents(actions, budget, cornerSticker) {
   bind('#v5-tpl', () => {
     moreMenuOpen = false;
     if (state.templates.balance.length) {
+      const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
       const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
       draft = state.templates.balance.filter(id => valid.has(id)).slice(0, budget.available);
       inspectedId = draft[draft.length - 1] || null;
+      const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
       showToast('已载入自定义模板');
+      if (justFormed) {
+        playComboCollisionVfx(justFormed, !state.discoveredCombos.includes(justFormed.id), actions, getActionMeta, state, draft);
+      }
     } else if (draft.length) {
       state.templates.balance = [...draft];
       showToast('已保存当前方案为自定义模板');
@@ -1711,110 +1768,142 @@ function openHexDeckModal(defaultTab = 'deck') {
   renderDeck();
 }
 
-// ===== 专属「人审剧情手账阅读器」（支持海克斯金色共鸣破局、属性检定、概率博弈）=====
+function pulseTopHudForEffects(ef = {}) {
+  setTimeout(() => {
+    const ids = [];
+    if (ef.cash) ids.push('#hud-cash');
+    if (ef.health) ids.push('#hud-health');
+    if (ef.mood || ef.parentInt || ef.friendInt || ef.partnerInt) ids.push('#hud-mood');
+    if (!ids.length) ids.push('#hud-mood');
+    ids.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el) {
+        el.classList.remove('hud-pulse');
+        void el.offsetWidth;
+        el.classList.add('hud-pulse');
+      }
+    });
+  }, 60);
+}
+
+// ===== 专属「人审剧情手账阅读器 V3」（动态情境视窗 + 反应相框 + 邮戳信笺 + 去数值化心境独白与淡墨暗章）=====
 function showApprovedEventV3(ev, next, opts = {}) {
-  const cleanTitle = ev.title.replace(/\[.*?\]\s*/, '');
-  const chapterLabel = ev.isDreamEvent
-    ? '心之所向 · 追梦切片'
-    : opts.isMidTurn
-      ? '半路小插曲 · 随机奇遇'
-      : ev.priority === 'P0' ? '人生重要节点'
-      : ev.priority === 'P1' ? '珍藏记忆定格'
-      : '生活烟火切片';
+  const cleanTitle = ev.title.replace(/^\[.*?\]\s*|^【.*?】\s*/, '');
+  const shortPostmark = ev.isDreamEvent ? '追梦切片' : opts.isMidTurn ? '半路奇遇' : '人生节点';
+  const bgKey = getBgKey(state.age);
+  const stageIdx = getSubStageIndex(state.age);
+  const stamp = getDateStamp(state.age, state.subTurn);
+  const spUrl = sprites[state.gender]?.[stageIdx] || '';
 
-  const splitChoiceLabel = raw => {
-    const m = raw.match(/^(.*?)[（(]([^）)]+)[）)]$/);
-    return m ? { main: m[1].trim(), sub: m[2].trim() } : { main: raw, sub: '' };
-  };
+  if (!opts.isMidTurn) {
+    state.albumPhotos.push({ age: state.age, stamp, title: cleanTitle, stageIdx, bg: bgKey });
+  }
 
-  showV3Capture({
-    storyMode: true,
-    badge: chapterLabel,
-    title: cleanTitle,
-    photoCaption: opts.isMidTurn ? null : cleanTitle,
-    bodyHtml: `
-      <div class="story-paper">${ev.summary}</div>
-      <div class="story-choices">
-        ${ev.choices.map((c, idx) => {
-          const isSpecial = Boolean(c.reqAny || c.reqRelation || typeof c.reqCustom === 'boolean');
-          let ok = true;
-          if (c.reqAny) ok = Object.entries(c.reqAny).some(([k, v]) => state.stats[k] >= v);
-          if (c.reqRelation) ok = (state.relations.partner?.intimacy >= c.reqRelation) || (state.child?.bond >= c.reqRelation);
-          if (typeof c.reqCustom === 'boolean') ok = c.reqCustom;
-          const { main, sub } = splitChoiceLabel(c.label);
-          const cls = (c.isHexResonance || c.isLiveArcade) ? 'hex-res-choice' : isSpecial ? (ok ? 'gold-choice' : 'locked-choice') : '';
-          let badgeHtml = '';
-          if (c.isLiveArcade) {
-            badgeHtml = `<span class="gold-badge">${pxIcon('gamepad', 11)} 临场实操</span>`;
-          } else if (c.isHexResonance) {
-            badgeHtml = `<span class="gold-badge">${pxIcon('hex', 11)} 海克斯共鸣</span>`;
-          } else if (isSpecial) {
-            badgeHtml = ok
-              ? `<span class="gold-badge">★ ${c.reqRelation ? '羁绊解锁' : '条件达标'}</span>`
-              : `<span class="lock-badge">${pxIcon('lock', 11)} 未达条件</span>`;
-          } else if (c.gamble) {
-            const pct = Math.min(95, Math.round((c.gamble.rate + (hasHex(state, 'hx_koi_god') ? 0.25 : 0) + (getBondTier(state, 'luck') >= 4 ? 0.20 : 0)) * 100));
-            badgeHtml = `<span class="gold-badge">${pct}% 博弈</span>`;
-          }
-          return `
-            <button class="story-choice ${cls}" data-ci="${idx}" ${ok ? '' : 'disabled'}>
-              <div class="sc-top">
-                <span class="sc-main">${main}</span>
-                ${badgeHtml}
-              </div>
-              ${sub ? `<div class="sc-sub">${sub}</div>` : ''}
-            </button>
-          `;
-        }).join('')}
+  mountOverlay(`
+    <div class="v3-overlay ev3-root">
+      ${buildEventVignetteHtml(ev, state, spUrl, stamp)}
+      <div class="film-sprockets">${'<i></i>'.repeat(12)}</div>
+      <div class="ev3-body">
+        <div class="ev3-letter">
+          <span class="ev3-tape left"></span>
+          <span class="ev3-tape right"></span>
+          <div class="ev3-letter-head">
+            <span class="ev3-postmark"><i>${shortPostmark.slice(0, 2)}</i><i>${shortPostmark.slice(2, 4)}</i></span>
+            <h3 class="ev3-title">${cleanTitle}</h3>
+          </div>
+          <p class="ev3-summary">${ev.summary}</p>
+        </div>
+
+        <div class="ev3-choices">
+          ${ev.choices.map((c, idx) => {
+            const isSpecial = Boolean(c.reqAny || c.reqRelation || typeof c.reqCustom === 'boolean');
+            let ok = true;
+            if (c.reqAny) ok = Object.entries(c.reqAny).some(([k, v]) => state.stats[k] >= v);
+            if (c.reqRelation) ok = (state.relations.partner?.intimacy >= c.reqRelation) || (state.child?.bond >= c.reqRelation);
+            if (typeof c.reqCustom === 'boolean') ok = c.reqCustom;
+
+            const fmt = formatNarrativeChoiceV3(c, ev);
+            const cls = (c.isHexResonance || c.isLiveArcade) ? 'res' : (!ok ? 'locked' : '');
+            let specialTag = '';
+            if (c.isLiveArcade) specialTag = `<span class="gold-badge">${pxIcon('gamepad', 11)} 临场实操</span>`;
+            else if (c.isHexResonance) specialTag = `<span class="gold-badge">${pxIcon('hex', 11)} 海克斯共鸣</span>`;
+            else if (isSpecial && !ok) specialTag = `<span class="lock-badge">${pxIcon('lock', 11)} 条件未满</span>`;
+            else if (c.gamble) {
+              const pct = Math.min(95, Math.round((c.gamble.rate + (hasHex(state, 'hx_koi_god') ? 0.25 : 0) + (getBondTier(state, 'luck') >= 4 ? 0.20 : 0)) * 100));
+              specialTag = `<span class="gold-badge">${pct}% 把握</span>`;
+            }
+
+            return `
+              <button class="ev3-choice-card ${cls}" data-ci="${idx}" ${ok ? '' : 'disabled'}>
+                <div class="ev3-medallion">${pxIcon(fmt.ico, 22)}</div>
+                <div class="ev3-c-body">
+                  <div class="ev3-c-top">
+                    <b class="ev3-c-main">${fmt.cleanMain}</b>
+                    ${specialTag}
+                  </div>
+                  <div class="ev3-whisper">${fmt.whisper}</div>
+                </div>
+                <span class="ev3-ink-stamp">${fmt.stamp}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="ev3-footnote">凭心意做出选择 · 岁月自会留下回响</div>
       </div>
-    `,
-    onDone: (host, finish) => {
-      host.querySelectorAll('[data-ci]').forEach(b => {
-        b.onclick = () => {
-          const choice = ev.choices[Number(b.dataset.ci)];
-          const res = applyEventChoiceEffects(state, choice);
-          if (res.photoCaption) {
-            state.albumPhotos.push({
-              age: state.age,
-              stamp: getDateStamp(state.age, state.subTurn),
-              title: res.photoCaption,
-              stageIdx: getSubStageIndex(state.age),
-              bg: getBgKey(state.age)
-            });
-          }
-          finish();
-          const dreamToGame = {
-            d_esport: 'work_slice',
-            d_hurdle: 'bell_dash',
-            d_tsinghua: 'nostalgia_link',
-            d_singer: 'nostalgia_link',
-            d_surgeon: 'lake_fishing'
-          };
-          if (res.launchQualifierArcade) {
-            const { id } = res.launchQualifierArcade;
-            launchArcadeGame(dreamToGame[id] || 'nostalgia_link', {
-              qualifierDream: { id },
-              onAfterDone: () => { if (next) next(); }
-            });
-            return;
-          }
-          if (res.launchClimaxArcade) {
-            const { id, nearTxt } = res.launchClimaxArcade;
-            launchArcadeGame(dreamToGame[id] || 'nostalgia_link', {
-              climaxDream: { id, nearTxt },
-              onAfterDone: () => { if (next) next(); }
-            });
-            return;
-          }
-          if (res.openTuckAfter) {
-            openTuckShopSheet();
-            return;
-          }
-          if (res.msg) showToast(res.msg);
-          if (next) next();
+    </div>
+  `, host => {
+    const finish = () => {
+      clearOverlay();
+      render();
+    };
+    host.querySelectorAll('[data-ci]').forEach(b => {
+      b.onclick = () => {
+        const choice = ev.choices[Number(b.dataset.ci)];
+        const res = applyEventChoiceEffects(state, choice);
+        if (res.photoCaption) {
+          state.albumPhotos.push({
+            age: state.age,
+            stamp: getDateStamp(state.age, state.subTurn),
+            title: res.photoCaption,
+            stageIdx: getSubStageIndex(state.age),
+            bg: getBgKey(state.age)
+          });
+        }
+        finish();
+        pulseTopHudForEffects(choice.effects || {});
+
+        const dreamToGame = {
+          d_esport: 'work_slice',
+          d_hurdle: 'bell_dash',
+          d_tsinghua: 'nostalgia_link',
+          d_singer: 'nostalgia_link',
+          d_surgeon: 'lake_fishing'
         };
-      });
-    }
+        if (res.launchQualifierArcade) {
+          const { id } = res.launchQualifierArcade;
+          launchArcadeGame(dreamToGame[id] || 'nostalgia_link', {
+            qualifierDream: { id },
+            onAfterDone: () => { if (next) next(); }
+          });
+          return;
+        }
+        if (res.launchClimaxArcade) {
+          const { id, nearTxt } = res.launchClimaxArcade;
+          launchArcadeGame(dreamToGame[id] || 'nostalgia_link', {
+            climaxDream: { id, nearTxt },
+            onAfterDone: () => { if (next) next(); }
+          });
+          return;
+        }
+        if (res.openTuckAfter) {
+          openTuckShopSheet();
+          return;
+        }
+        if (res.msg) showToast(res.msg);
+        if (next) next();
+      };
+    });
   });
 }
 
@@ -2006,7 +2095,10 @@ function launchArcadeGame(gameId, opts = {}) {
       bell_dash: openBellDashGame,
       work_slice: openWorkSliceGame,
       red_packet_rain: openRedPacketRainGame,
-      lake_fishing: openLakeFishingGame
+      lake_fishing: openLakeFishingGame,
+      rhythm_master: openRhythmMasterGame,
+      spot_bug: openSpotBugGame,
+      spot_diff: openSpotDiffGame
     };
     const runner = gameFnMap[gameId] || openRingTossGame;
     runner(
@@ -2062,6 +2154,7 @@ function launchArcadeGame(gameId, opts = {}) {
           state.cash += cashGain;
           state.stats.mood = clamp(state.stats.mood + moodGain);
           if (res.know) state.stats.knowledge = clamp(state.stats.knowledge + res.know);
+          if (res.expr) state.stats.expr = clamp(state.stats.expr + res.expr);
           if (res.pro) state.stats.pro = clamp(state.stats.pro + res.pro);
           if (res.health) state.stats.health = clamp(state.stats.health + res.health);
           if (res.fatigueDelta) state.stats.fatigue = clamp(state.stats.fatigue + res.fatigueDelta);
@@ -2087,45 +2180,70 @@ function launchArcadeGame(gameId, opts = {}) {
   });
 }
 
-// 到了对应人生阶段自动弹出的拍立得生活奇遇小游戏入口卡（无需玩家去菜单里找）
+// 到了对应人生阶段自动弹出的 V3 情境奇遇卡（去数值化心境样式，无需从菜单找小游戏）
 function showStageArcadePopup(moment, afterDone) {
-  showV3Capture({
-    storyMode: true,
-    badge: moment.badge,
-    title: moment.title,
-    photoCaption: null,
-    bodyHtml: `
-      <div class="story-paper">${moment.summary}</div>
-      <div class="story-choices">
-        <button class="story-choice hex-res-choice" id="sa-go">
-          <div class="sc-top">
-            <span class="sc-main">${moment.playLabel.split('（')[0]}</span>
-            <span class="gold-badge">${pxIcon('gamepad', 11)} 阶段触发</span>
+  const stageIdx = getSubStageIndex(state.age);
+  const stamp = getDateStamp(state.age, state.subTurn);
+  const spUrl = sprites[state.gender]?.[stageIdx] || '';
+
+  mountOverlay(`
+    <div class="v3-overlay ev3-root">
+      ${buildEventVignetteHtml(moment, state, spUrl, stamp)}
+      <div class="film-sprockets">${'<i></i>'.repeat(12)}</div>
+      <div class="ev3-body">
+        <div class="ev3-letter">
+          <span class="ev3-tape left"></span>
+          <span class="ev3-tape right"></span>
+          <div class="ev3-letter-head">
+            <span class="ev3-postmark"><i>岁月</i><i>奇遇</i></span>
+            <h3 class="ev3-title">${moment.title}</h3>
           </div>
-          ${moment.playLabel.includes('（') ? `<div class="sc-sub">${moment.playLabel.split('（')[1].replace('）', '')}</div>` : ''}
-        </button>
-        <button class="story-choice" id="sa-pass">
-          <div class="sc-top"><span class="sc-main">${moment.passLabel.split('（')[0]}</span></div>
-          ${moment.passLabel.includes('（') ? `<div class="sc-sub">${moment.passLabel.split('（')[1].replace('）', '')}</div>` : ''}
-        </button>
+          <p class="ev3-summary">${moment.summary}</p>
+        </div>
+
+        <div class="ev3-choices">
+          <button class="ev3-choice-card res" id="sa-go">
+            <div class="ev3-medallion">${pxIcon('gamepad', 22)}</div>
+            <div class="ev3-c-body">
+              <div class="ev3-c-top">
+                <b class="ev3-c-main">${moment.playLabel.split('（')[0]}</b>
+                <span class="gold-badge">${pxIcon('spark', 11)} 阶段触发</span>
+              </div>
+              <div class="ev3-whisper">“难得撞上这么有趣的时刻，当然要上手试一把！”</div>
+            </div>
+            <span class="ev3-ink-stamp">亲身体验</span>
+          </button>
+
+          <button class="ev3-choice-card" id="sa-pass">
+            <div class="ev3-medallion">${pxIcon('life', 22)}</div>
+            <div class="ev3-c-body">
+              <div class="ev3-c-top"><b class="ev3-c-main">${moment.passLabel.split('（')[0]}</b></div>
+              <div class="ev3-whisper">“今天还有别的事要忙，顺其自然带过也挺舒心。”</div>
+            </div>
+            <span class="ev3-ink-stamp">从容度日</span>
+          </button>
+        </div>
+
+        <div class="ev3-footnote">凭心意做出选择 · 岁月自会留下回响</div>
       </div>
-    `,
-    onDone: (host, finish) => {
-      host.querySelector('#sa-go').onclick = () => {
-        finish();
-        launchArcadeGame(moment.gameId, { onAfterDone: afterDone });
-      };
-      host.querySelector('#sa-pass').onclick = () => {
-        const pe = moment.passEff || {};
-        if (pe.mood) state.stats.mood = clamp(state.stats.mood + pe.mood);
-        if (pe.health) state.stats.health = clamp(state.stats.health + pe.health);
-        if (pe.knowledge) state.stats.knowledge = clamp(state.stats.knowledge + pe.knowledge);
-        if (pe.cash) state.cash += pe.cash;
-        saveAutoProgress();
-        finish();
-        if (afterDone) afterDone();
-      };
-    }
+    </div>
+  `, host => {
+    const finish = () => { clearOverlay(); render(); };
+    host.querySelector('#sa-go').onclick = () => {
+      finish();
+      launchArcadeGame(moment.gameId, { onAfterDone: afterDone });
+    };
+    host.querySelector('#sa-pass').onclick = () => {
+      const pe = moment.passEff || {};
+      if (pe.mood) state.stats.mood = clamp(state.stats.mood + pe.mood);
+      if (pe.health) state.stats.health = clamp(state.stats.health + pe.health);
+      if (pe.knowledge) state.stats.knowledge = clamp(state.stats.knowledge + pe.knowledge);
+      if (pe.cash) state.cash += pe.cash;
+      saveAutoProgress();
+      finish();
+      pulseTopHudForEffects(pe);
+      if (afterDone) afterDone();
+    };
   });
 }
 
@@ -2192,91 +2310,18 @@ function launchGomokuGame(onAfterDone) {
   });
 }
 
-// ===== 童年「校门口小卖部」手账弹窗 =====
+// ===== 童年「校门口小卖部 V2」（三层实景木货架 + 手撕干脆面盲袋 + 课间找小周拍水浒卡）=====
 function openTuckShopSheet() {
   ensureSprint1State(state);
-  const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
-  const packPrice = Math.round(15 * disc);
-
-  const renderTuck = () => {
-    const ownedCards = state.snackCards || [];
-    mountOverlay(`<div class="sheet-modal"><div class="sheet-box" style="max-height:84%;display:flex;flex-direction:column;">
-      <div class="sec-head-row" style="margin-bottom:6px;">
-        <span class="sec-title">${pxIcon('shop', 17)} 校门口小卖部</span>
-        <span class="tag up">零花 ¥${fmtMoney(state.cash)}</span>
-      </div>
-      <div style="flex:1;overflow-y:auto;min-height:0;">
-        <div class="mg-stats" style="margin-bottom:6px;">
-          <b>干脆面水浒卡 (${ownedCards.length}/12)</b> · 集齐 4/8/12 张送现金 + 命运重随券！
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-          <button class="pill-btn soft" id="tk-ring" style="flex:1;">${pxIcon('ring', 14)} 门口套圈摊</button>
-          <button class="pill-btn soft" id="tk-link" style="flex:1;">${pxIcon('gamepad', 14)} 零食连连看</button>
-        </div>
-        <button class="btn primary" id="tk-draw" style="width:100%;margin-bottom:4px;">${pxIcon('snack', 15)} 买包干脆面拆水浒卡 (-¥${packPrice} · 心态+1)</button>
-        <div class="tuck-card-grid">
-          ${TUCK_CARDS_12.map(c => {
-            const has = ownedCards.includes(c);
-            return `<div class="tuck-card-chip ${has ? 'owned' : ''}">${has ? c.slice(3) : c.slice(0, 2) + ' ???'}</div>`;
-          }).join('')}
-        </div>
-
-        <div class="sec-head-row" style="margin:6px 0 2px;">
-          <span class="sec-title" style="font-size:13px;">${pxIcon('gift', 15)} 怀旧小物件（入驻木格旧物盒）</span>
-        </div>
-        <div class="tuck-goods-grid">
-          ${TUCK_GOODS.map(g => {
-            const owned = state.items.includes(g.item);
-            const p = Math.round(g.cost * disc);
-            return `<button class="tuck-good-btn" data-tg="${g.id}" ${owned ? 'disabled' : ''}>
-              <div class="tuck-good-top"><span>${pxIcon(g.ico, 14)} ${g.name}</span><span style="color:var(--accent);">${owned ? '已珍藏' : `¥${p}`}</span></div>
-              <div class="tuck-good-desc">${g.desc}</div>
-            </button>`;
-          }).join('')}
-        </div>
-
-        <div class="sec-head-row" style="margin:6px 0 4px;">
-          <span class="sec-title" style="font-size:13px;">${pxIcon('heart', 15)} 买小零食送亲友（每季限 1 次 · ¥30）</span>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="pill-btn soft" id="tk-gf" style="flex:1;" ${state.tuckGiftThisTurn ? 'disabled' : ''}>请同桌吃零食 (+4亲密)</button>
-          <button class="pill-btn soft" id="tk-gp" style="flex:1;" ${state.tuckGiftThisTurn ? 'disabled' : ''}>给爸妈买板栗 (+4亲密)</button>
-        </div>
-      </div>
-      <div class="mg-actions" style="margin-top:8px;"><button class="btn ghost" id="tk-close" style="width:100%;">背上书包回家</button></div>
-    </div></div>`, host => {
-      host.querySelector('#tk-close').onclick = () => { clearOverlay(); render(); };
-      host.querySelector('#tk-ring').onclick = () => { clearOverlay(); launchArcadeGame('ring_toss'); };
-      host.querySelector('#tk-link').onclick = () => { clearOverlay(); launchArcadeGame('nostalgia_link'); };
-      host.querySelector('#tk-draw').onclick = () => {
-        const res = drawSnackCard(state);
-        saveAutoProgress();
-        renderTuck();
-        showToast(res.msg);
-      };
-      host.querySelectorAll('[data-tg]').forEach(b => {
-        b.onclick = () => {
-          const res = buyTuckGood(state, b.dataset.tg);
-          saveAutoProgress();
-          renderTuck();
-          showToast(res.msg);
-        };
-      });
-      host.querySelector('#tk-gf').onclick = () => {
-        const res = buyTuckGift(state, 'friend');
-        saveAutoProgress();
-        renderTuck();
-        showToast(res.msg);
-      };
-      host.querySelector('#tk-gp').onclick = () => {
-        const res = buyTuckGift(state, 'parents');
-        saveAutoProgress();
-        renderTuck();
-        showToast(res.msg);
-      };
-    });
-  };
-  renderTuck();
+  openTuckShopV2({
+    state,
+    mountOverlay,
+    clearOverlay,
+    saveAutoProgress,
+    renderMain: render,
+    showToast,
+    fmtMoney
+  });
 }
 
 // ===== 成年「周末实景看房手账」（动态 3 套特色房源 + 中介换批）=====

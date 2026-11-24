@@ -2,7 +2,7 @@
 // 四阶生命周期：0 未撞见 -> 1 启蒙火种 -> 2 兴趣萌芽 -> 3 认真追逐 -> 4 终局四重回响（圆梦 / 惜败再战 / 体面和解 / 岁月留白）
 // 严格遵循零 Emoji 与真实千禧烟火质感。
 
-import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s31';
+import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s40';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
