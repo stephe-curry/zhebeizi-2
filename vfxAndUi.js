@@ -5,16 +5,16 @@
 // 4. 「亲友梦」自然生长四阶追梦手账卡
 // 严格遵循纯中文零表情符号规范。
 
-import { CITIES } from './data.js?v=s25c';
+import { CITIES } from './data.js?v=s31';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_BOND_ORDER, HEX_CARD_MAP,
   hasHex, getHexInstance, getHexBondCounts, getBondTier,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s25c';
-import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s25c';
-import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s25c';
-import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s25c';
-import { pxIcon } from './icons.js?v=s25c';
+} from './hextech.js?v=s31';
+import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s31';
+import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s31';
+import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s31';
+import { pxIcon } from './icons.js?v=s31';
 
 // 移动端触感短震动（兼容微信小程序 wx.vibrateShort 与移动端浏览器）
 export function triggerHaptic(type = 'medium') {
@@ -862,6 +862,8 @@ export function renderNewAssetsTab(state, fmtMoney) {
       : /听诊器|胸牌/.test(nm) ? 'stethoscope'
       : /通知书|草稿/.test(nm) ? 'study'
       : /铃铛|项圈|跑轮/.test(nm) ? 'bell'
+      : /青蛙/.test(nm) ? 'frog'
+      : /怀表/.test(nm) ? 'watch'
       : 'dream';
     const meta = state.itemStories?.[nm] || {
       story: /悠悠球|芭比/.test(nm) ? '8 岁那年攒下零花钱买回来的心头好，一直舍不得扔。' : '一路走来悉心留存的珍贵旧物。',
@@ -1155,9 +1157,18 @@ export function renderDreamJournalSection(state) {
         <div class="dream-journal-list">
           ${touched.map(d => {
             const st = stageLabel(d);
-            const extraInfo = d.id === 'd_singer' && d.songsCount > 0
-              ? `原创曲 ${d.songsCount} 首（代表作${d.songName}）`
-              : `累计投入 ${d.trains} 次 · 熟练度 ${d.xp}/100`;
+            let extraInfo = `累计投入 ${d.trains} 次 · 熟练度 ${d.xp}/100`;
+            if (d.id === 'd_singer') {
+              extraInfo = `原创歌单 ${d.songsCount || 0}/3 首（代表作${d.songName}）· 熟练 ${d.xp}/100`;
+            } else if (d.id === 'd_surgeon') {
+              const medTxt = d.qualified ? '已取执业医证' : d.medQualified ? '医学在读·待考执业证' : '待取医学学籍';
+              extraInfo = `${medTxt} · 熟练 ${d.xp}/100`;
+            } else if (d.id === 'd_tsinghua') {
+              const qTxt = !state.gaokaoDone ? `高考冲刺加分 +${Math.min(5, Math.floor(d.xp / 12))}` : '考研逆袭清北线';
+              extraInfo = `${qTxt} · 熟练 ${d.xp}/100`;
+            } else if (d.qualified) {
+              extraInfo = `${d.id === 'd_esport' ? '青训二队在约' : '省集训队达标'} · 熟练 ${d.xp}/100`;
+            }
             const canPivot = (d.stage === 2 || d.stage === 3) && state.age >= 18;
             return `
               <div class="dj-card">

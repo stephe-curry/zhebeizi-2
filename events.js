@@ -2,13 +2,13 @@
 // 红线声明：本文件全部事件为结构化机制卡壳（audit_stage: 'MECHANIC_SHELL'），严格保留 review_status 硬门禁，
 // 供第 4 步批量替换为人工审定文学正文；严禁包含任何 AI 自动生成的长段剧情对话。
 
-import { SUB_STAGES, DREAMS } from './data.js?v=s25c';
-import { hasHex, getBondTier } from './hextech.js?v=s25c';
-import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s25c';
+import { SUB_STAGES, DREAMS } from './data.js?v=s31';
+import { hasHex, getBondTier } from './hextech.js?v=s31';
+import { adoptPet, PET_CATALOG } from './lifeFeatures.js?v=s31';
 import {
   ensureDreamState, DREAM_CATALOG, addKeepsakeWithStory,
-  settleDreamClimax, applyGracefulPivot, syncLegacyDreamFields
-} from './dreams.js?v=s25c';
+  settleDreamQualifier, settleDreamClimax, applyGracefulPivot, syncLegacyDreamFields
+} from './dreams.js?v=s31';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -867,6 +867,18 @@ export function applyEventChoiceEffects(state, choice) {
     applyGracefulPivot(state, ef.dreamPivot);
     msg = `与执念温柔和解，过往投入已沉淀为终身特质：${meta.pivotTrait}`;
   }
+  let launchClimaxArcade = null;
+  let launchQualifierArcade = null;
+  if (ef.launchClimaxArcade) {
+    launchClimaxArcade = ef.launchClimaxArcade;
+  }
+  if (ef.launchQualifierArcade) {
+    launchQualifierArcade = ef.launchQualifierArcade;
+  }
+  if (ef.resolveDreamQualifier) {
+    const res = settleDreamQualifier(state, ef.resolveDreamQualifier.id, ef.resolveDreamQualifier.grade || 'B');
+    msg = res.msg;
+  }
   if (ef.resolveDreamClimax) {
     const { id, bonus, nearTxt } = ef.resolveDreamClimax;
     const res = settleDreamClimax(state, id, bonus, nearTxt);
@@ -874,5 +886,5 @@ export function applyEventChoiceEffects(state, choice) {
   }
   if (ef.photo) photoCaption = ef.photo;
 
-  return { msg, openTuckAfter, photoCaption };
+  return { msg, openTuckAfter, photoCaption, launchClimaxArcade, launchQualifierArcade };
 }

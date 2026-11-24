@@ -2,7 +2,7 @@
 // 四阶生命周期：0 未撞见 -> 1 启蒙火种 -> 2 兴趣萌芽 -> 3 认真追逐 -> 4 终局四重回响（圆梦 / 惜败再战 / 体面和解 / 岁月留白）
 // 严格遵循零 Emoji 与真实千禧烟火质感。
 
-import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s25c';
+import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s31';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -104,8 +104,14 @@ export function ensureDreamState(state) {
         songsCount: 0,
         songName: '《慢一点回家》',
         medQualified: false,
+        qualified: false,
         seenSlices: []
       };
+    }
+  }
+  for (const id of DREAM_IDS) {
+    if (state.dreams[id] && typeof state.dreams[id].qualified !== 'boolean') {
+      state.dreams[id].qualified = false;
     }
   }
   if (!state.itemStories) state.itemStories = {};
@@ -239,7 +245,7 @@ export function executeDreamAction(state, actionId, opts = {}) {
   if (id === 'd_tsinghua') state.stats.knowledge = clamp(state.stats.knowledge + 1);
   if (id === 'd_singer') {
     state.stats.expr = clamp(state.stats.expr + 1);
-    if (d.trains % 3 === 0 && d.songsCount < 10) d.songsCount++;
+    if ((d.trains === 1 || d.trains % 3 === 0) && d.songsCount < 10) d.songsCount++;
   }
   if (id === 'd_surgeon') {
     if (state.age <= 18) state.stats.knowledge = clamp(state.stats.knowledge + 1);
@@ -262,17 +268,33 @@ export function executeDreamAction(state, actionId, opts = {}) {
 export function rollDreamLifecycleEvent(state, draftIds = []) {
   ensureDreamState(state);
 
-  // 优先级 A：已立志追逐（Stage 3）到达终局窗口且熟练度充足 -> 触发终局大考！
+  // 优先级 A：已立志追逐（Stage 3）到达终局窗口且前置硬条件与熟练度齐备 -> 触发终局大考！
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
     const meta = DREAM_CATALOG[id];
     if (d.stage !== 3) continue;
-    // 清北高考轨在 18 岁高考后若未录 u1，自动转为考研逆袭轨；若在 22-25 岁且 xp>=68 触发考研决战
+    // 清北：18 岁之前走高考志愿直通，19 岁之后若高考未进 u1 则走「另一所大学的书桌 · 考研清北复试终面」
+    if (id === 'd_tsinghua' && !state.gaokaoDone) continue;
+    // 万人场歌手：歌单必须攒满至少 3 首原创歌（对齐原稿《歌单的第三首》）
+    if (id === 'd_singer' && (d.songsCount || 0) < 3) continue;
+    // 外科主刀：必须已通过「执业医师实操考」取得合法执业资格（对齐原稿 SUR18/SUR28）
+    if (id === 'd_surgeon' && !d.qualified) continue;
+
     const readyByXp = d.xp >= 68 || (state.age >= meta.climaxMaxAge - 1 && d.xp >= 52);
     const inAge = state.age >= meta.climaxMinAge && state.age <= meta.climaxMaxAge;
     const retryGapOk = !d.lastClimaxAge || state.age >= d.lastClimaxAge + 2;
     if (inAge && readyByXp && retryGapOk) {
       return buildDreamClimaxEvent(state, id);
+    }
+  }
+
+  // 优先级 A.5（新增关键进阶幕）：已立志（Stage 3）且 xp>=42 -> 触发「青训试训 / 省赛达标 / 统测压轴 / 千人巡演 / 执业医考」实操晋级！
+  for (const id of DREAM_IDS) {
+    const d = state.dreams[id];
+    if (d.stage !== 3 || d.seenSlices.includes('qualifier')) continue;
+    if (id === 'd_surgeon' && state.age < 21) continue; // 临床上台与医考需大三见习以后
+    if (d.xp >= 42) {
+      return buildDreamQualifierEvent(state, id);
     }
   }
 
@@ -596,6 +618,108 @@ function buildDreamCommitEvent(state, id) {
   };
 }
 
+// ==================== 新增阶段 3.5：晋级选拔 / 执业医考 / 千人巡演（自动拉起梦想定制小游戏！）====================
+function buildDreamQualifierEvent(state, id) {
+  const specs = {
+    d_esport: {
+      title: '【晋级选拔】青训试训名单与首发对抗赛',
+      summary: '你终于收到职业俱乐部二队的线下试训通知。教练把五名试训生叫进训练室：“今天不看段位截图，直接打一场高强度集火实测，留下来的人签正式青训补贴合同。”',
+      liveLabel: '坐上试训席实操迎战（22秒团战集火微操 · 通过签青训约每年 +¥1.2万津贴）',
+      steadyLabel: '稳健打满视野配合体系过关（电竞 +6，签约入选青训二队）'
+    },
+    d_hurdle: {
+      title: '【晋级选拔】省田径锦标赛 · 达标线资格战',
+      summary: '走上省赛塑胶跑道，只有跑进国家一级达标线，才能拿到全国大赛入场券与省队集训津贴。许老师站在看台第一排朝你比了个稳住七步节奏的手势。',
+      liveLabel: '踏上起跑器亲自冲刺过栏（20秒十栏节奏选拔 · 达标享省队津贴 +¥1万/年）',
+      steadyLabel: '按平时训练步点稳健完赛达标（跨栏 +6，健康 +2，入选省集训名单）'
+    },
+    d_tsinghua: {
+      title: !state.gaokaoDone ? '【晋级大考】高三全市统测 · 压轴大题破壁' : '【晋级大考】清北考研初试 · 专业课压轴攻坚',
+      summary: !state.gaokaoDone
+        ? '高三最关键的一次全市跨校统测，最后两道综合压轴题把全考场拉开了分差。只要把六大核心题眼串通，就能彻底坐稳清北冲刺线！'
+        : '坐在考研初试考场里，专业课最后一道长推导题正是你在图书馆熬夜拆解过的母题变体！',
+      liveLabel: '提笔闪电连线破译六大题眼（28秒压轴题连线 · 额外奖高考 +3分 / 奖学金）',
+      steadyLabel: '严密分步推导拿下基础与中档满分（清北 +6，学识 +3，锁定冲刺资格）'
+    },
+    d_singer: {
+      title: '【晋级巡演】千人现场耳返调音与歌单第三首',
+      summary: '第一次站上近千人的城市巡演舞台，开场前二十分钟耳返节拍器突发延迟，台下已经坐满了举着灯牌等待你唱新歌的听众。',
+      liveLabel: '亲自校准耳返带动全场和弦共鸣（28秒舞台旋律连线 · 写成第3首歌 + 票房¥8,000）',
+      steadyLabel: '摘下半边耳返靠木吉他箱体共振稳唱全场（原创曲 +1，专长 +6，票房 +¥5,000）'
+    },
+    d_surgeon: {
+      title: '【执业准入】首次上台拉钩与国家执业医师实操考',
+      summary: '在普外科跟着方医生熬过无数个天没亮的查房晨会，今天你同时迎来了第一次上手术台稳持腔镜，以及决定能否合法独立行医的国家执业医师技能大考！',
+      liveLabel: '走上无影灯考核台亲手控张力缝合（稳手精度实操 · 考取执业医证 + 规培补贴¥1.5万/年）',
+      steadyLabel: '严格按无菌规范与标准针距稳妥完考（考取执业医师证，医学 +6，专业 +2）'
+    }
+  };
+  const sc = specs[id];
+  return {
+    id: `drm_qual_${id}`,
+    isDreamEvent: true,
+    review_status: 'APPROVED',
+    title: sc.title,
+    summary: sc.summary,
+    choices: [
+      {
+        label: sc.liveLabel,
+        isLiveArcade: true,
+        effects: { launchQualifierArcade: { id }, fatigue: 1 }
+      },
+      {
+        label: sc.steadyLabel,
+        effects: { resolveDreamQualifier: { id, grade: 'B' }, fatigue: 1 }
+      }
+    ]
+  };
+}
+
+export function settleDreamQualifier(state, id, grade = 'B') {
+  ensureDreamState(state);
+  const d = state.dreams[id];
+  const meta = DREAM_CATALOG[id];
+  if (!d) return { msg: '' };
+  if (!d.seenSlices.includes('qualifier')) d.seenSlices.push('qualifier');
+  d.qualified = true;
+
+  const xpAdd = grade === 'S' ? 11 : grade === 'A' ? 9 : 6;
+  d.xp = clamp(d.xp + xpAdd);
+  state.stats.mood = clamp(state.stats.mood + (grade === 'S' ? 5 : 3));
+
+  let detail = '';
+  if (id === 'd_esport') {
+    state.cash += 6000;
+    detail = '正式签下俱乐部青训二队合同（首笔签约金 +¥6,000，每年享 ¥1.2 万青训津贴）！';
+  } else if (id === 'd_hurdle') {
+    state.stats.health = clamp(state.stats.health + 2);
+    detail = '成功跑进国家一级运动员达标线（健康 +2，每年享 ¥1 万省队训练津贴）！';
+  } else if (id === 'd_tsinghua') {
+    state.stats.knowledge = clamp(state.stats.knowledge + 3);
+    if (!state.gaokaoDone) {
+      state.gaokaoHexBonus = (state.gaokaoHexBonus || 0) + (grade === 'S' ? 4 : 3);
+      if (!state.experiences.includes('exp_gaokao_sprint')) state.experiences.push('exp_gaokao_sprint');
+      detail = `统测一鸣惊人！锁定清北冲刺资格且高考总分额外 +${grade === 'S' ? 4 : 3} 分！`;
+    } else {
+      state.cash += 6000;
+      detail = '考研初试高分过线，获学业拔尖奖学金 +¥6,000，直通清北复试终面！';
+    }
+  } else if (id === 'd_singer') {
+    d.songsCount = Math.min(10, Math.max(3, (d.songsCount || 0) + 1));
+    const boxOffice = grade === 'S' ? 9500 : 6500;
+    state.cash += boxOffice;
+    detail = `千人巡演圆满谢幕！凑齐 ${d.songsCount} 首代表作歌单，巡演票房分成 +¥${boxOffice.toLocaleString()}！`;
+  } else if (id === 'd_surgeon') {
+    state.stats.pro = clamp(state.stats.pro + 3);
+    detail = '顺利考取《国家执业医师资格证》！正式排入外科值班表（每年享 ¥1.5 万规培津贴）！';
+  }
+
+  syncLegacyDreamFields(state);
+  return {
+    msg: `【${meta.name}晋级 · ${grade}级】专长 +${xpAdd} · ${detail}`
+  };
+}
+
 // ==================== 阶段 3：逆境高压试炼（海克斯金色破局高光时刻！）====================
 function buildDreamAdversityEvent(state, id) {
   const specs = {
@@ -733,6 +857,13 @@ function buildDreamClimaxEvent(state, id) {
   };
 
   const sc = sceneMap[id];
+  const liveLabelMap = {
+    d_esport: '亲自上阵决胜局微操（22秒切集火实操 · S级直加 +18 临场分）',
+    d_hurdle: '亲自踏上决赛跑道跨栏（20秒三道跨栏实操 · S级直加 +18 临场分）',
+    d_tsinghua: '亲自挑战压轴题闪电连线（28秒考场连连看 · S级直加 +18 临场分）',
+    d_singer: '亲自弹唱带动万人安可（28秒旋律连线 · S级直加 +18 临场分）',
+    d_surgeon: '亲自主刀腔镜稳手考核（精准张力控制 · S级直加 +18 临场分）'
+  };
   return {
     id: `drm_climax_${id}_${d.retries}`,
     isDreamEvent: true,
@@ -740,6 +871,11 @@ function buildDreamClimaxEvent(state, id) {
     title: sc.title,
     summary: sc.summary,
     choices: [
+      {
+        label: liveLabelMap[id] || '亲自上阵临场实操大考（按评级稳拿 +8~+18 临场分）',
+        isLiveArcade: true,
+        effects: { launchClimaxArcade: { id, nearTxt: sc.nearMissTxt }, fatigue: 1 }
+      },
       {
         label: sc.optA,
         effects: { resolveDreamClimax: { id, bonus: 12, nearTxt: sc.nearMissTxt }, fatigue: 2 }
@@ -757,7 +893,7 @@ function buildDreamClimaxEvent(state, id) {
 }
 
 // 结算终局成败，返回结果描述与后续抉择
-export function settleDreamClimax(state, id, choiceBonus, nearTxt) {
+export function settleDreamClimax(state, id, choiceBonus, nearTxt, isDirectArcade = false) {
   ensureDreamState(state);
   const d = state.dreams[id];
   const meta = DREAM_CATALOG[id];
@@ -771,9 +907,9 @@ export function settleDreamClimax(state, id, choiceBonus, nearTxt) {
     + (hasHex(state, 'hx_singer_royalty') && id === 'd_singer' ? 10 : 0)
     + (hasHex(state, 'hx_surgeon_blade') && id === 'd_surgeon' ? 10 : 0);
   const clutchSteady = hexBonus >= 6 || state.stats.mood >= 75;
-  const effChoice = choiceBonus >= 12
-    ? (clutchSteady || Math.random() < 0.58 ? 12 : 2)
-    : choiceBonus;
+  const effChoice = isDirectArcade
+    ? choiceBonus
+    : (choiceBonus >= 12 ? (clutchSteady || Math.random() < 0.58 ? 12 : 2) : choiceBonus);
   const luckRoll = Math.floor(Math.random() * 9) - 4; // -4 ~ +4
   const total = Math.round(d.xp * 0.65 + statVal * 0.22 + hexBonus + effChoice + luckRoll);
 
@@ -869,6 +1005,20 @@ export function applyDreamAnnualPassives(state, lines) {
       state.stats.mood = clamp(state.stats.mood + 2);
       if (id === 'd_hurdle') state.stats.health = clamp(state.stats.health + 2);
       lines.push(`【圆梦回响 · ${meta.name}】年度分成与津贴：+${pay.toLocaleString()} 元`);
+    } else if (d.stage === 3 && d.qualified && state.age >= 19) {
+      // 认真追逐且通过晋级选拔/医考后，每年发放真实职业化津贴（不再纯倒贴钱！）
+      const stipendMap = {
+        d_esport: [12000, '【青训二队合同】俱乐部年度训练津贴'],
+        d_hurdle: [10000, '【省田径集训队】年度运动员津贴'],
+        d_tsinghua: [6000, '【拔尖学子助研】年度学业奖学金'],
+        d_singer: [Math.max(6000, (singer.songsCount || 1) * 2800), '【独立巡演与流媒体】年度演出词曲分账'],
+        d_surgeon: [15000, '【住院医规培在岗】外科夜班与规培补贴']
+      };
+      const st = stipendMap[id];
+      if (st) {
+        inc += st[0];
+        lines.push(`${st[1]}：+${st[0].toLocaleString()} 元`);
+      }
     } else if (d.outcome === 'pivot') {
       if (id === 'd_esport' && state.age >= 19) {
         inc += 6000;

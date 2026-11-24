@@ -1,7 +1,7 @@
 // 《这辈子 2.0》Sprint 2 生活陪伴与消费模块
 // 包含：跨阶段养宠物系统 + 舞台闪光小彩蛋 + 童年校门口小卖部 + 成年周末实景看房手账
-import { CITIES } from './data.js?v=s25c';
-import { hasHex, getHexInstance, getBondTier } from './hextech.js?v=s25c';
+import { CITIES } from './data.js?v=s31';
+import { hasHex, getHexInstance, getBondTier } from './hextech.js?v=s31';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -108,7 +108,7 @@ export function advancePetYear(state) {
       upkeep,
       keepsake: def.keepsake,
       petName: state.pet.name,
-      line: `🐾 ${state.pet.name}陪你走过了 ${state.pet.ageYears} 年安详离开，留下了「${def.keepsake}」永存旧物盒`
+      line: `【岁月相伴】${state.pet.name}陪你走过了 ${state.pet.ageYears} 年安详离开，留下了「${def.keepsake}」永存旧物盒`
     };
   }
   return { died: false, upkeep, line: upkeep > 0 ? `宠物「${state.pet.name}」年度口粮：-${upkeep} 元` : null };
@@ -202,7 +202,7 @@ export function drawSnackCard(state) {
       const reward = cnt === 4 ? 120 : cnt === 8 ? 300 : 600;
       state.cash += reward;
       state.hexRerollTickets = (state.hexRerollTickets || 0) + 1;
-      milestoneMsg = ` 🎉 集齐 ${cnt}/12 张水浒卡！获现金 +¥${reward} + 命运重随券 +1！`;
+      milestoneMsg = ` · 集齐 ${cnt}/12 张水浒卡！获现金 +¥${reward} + 命运重随券 +1！`;
     }
   } else {
     state.cash += 5; // 重复卡换零花
@@ -248,32 +248,32 @@ export function buyTuckGift(state, target) {
 // ===== 4. 成年「周末实景看房手账」（动态 3 套特色房源）=====
 const LISTING_TEMPLATES = [
   {
-    key: 'sunpan', tierIdx: 0, badge: '🔥 急售笋盘', nameSuffix: '业主急售·笋盘刚需房',
+    key: 'sunpan', tierIdx: 0, badge: '急售笋盘', nameSuffix: '业主急售·笋盘刚需房',
     priceMult: 0.86, perk: '限时本季 86 折抄底！性价比之王',
     trait: 'bargain'
   },
   {
-    key: 'school', tierIdx: 0, badge: '🎓 学区老破小', nameSuffix: '老破小·重点学区房',
+    key: 'school', tierIdx: 0, badge: '学区老破小', nameSuffix: '老破小·重点学区房',
     priceMult: 0.92, perk: '便宜 8%，若有娃每年学业额外 +3',
     trait: 'school'
   },
   {
-    key: 'metro', tierIdx: 0, badge: '🚇 地铁口', nameSuffix: '地铁口·阳光两居',
+    key: 'metro', tierIdx: 0, badge: '地铁口好房', nameSuffix: '地铁口·阳光两居',
     priceMult: 1.06, perk: '零远郊通勤烦恼！彻底免除通勤锁格',
     trait: 'no_commute'
   },
   {
-    key: 'improve', tierIdx: 1, badge: '🌿 品质三居', nameSuffix: '公园旁·中产改善三居',
+    key: 'improve', tierIdx: 1, badge: '品质三居', nameSuffix: '公园旁·中产改善三居',
     priceMult: 0.98, perk: '6×6 宽敞拼图空间，全家居住舒心',
     trait: 'balanced'
   },
   {
-    key: 'terrace', tierIdx: 1, badge: '☀️ 顶楼露台', nameSuffix: '带露台·阳光改善房',
+    key: 'terrace', tierIdx: 1, badge: '顶楼露台', nameSuffix: '带露台·阳光改善房',
     priceMult: 0.91, perk: '折价 9%，适合养花养宠，居家休息心态额外 +1',
     trait: 'terrace'
   },
   {
-    key: 'luxury', tierIdx: 2, badge: '✨ 核心大宅', nameSuffix: '滨江/核心·大平层',
+    key: 'luxury', tierIdx: 2, badge: '核心大宅', nameSuffix: '滨江/核心·大平层',
     priceMult: 0.96, perk: '8×8 顶级空间，每次休息额外回心态 +2',
     trait: 'luxury'
   }

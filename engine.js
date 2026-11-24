@@ -2,23 +2,24 @@
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS,
   ERA_TIMELINE, SUB_STAGES, PROMO_REQ, LEVEL_MULT, APPROVED_SYSTEM_ANCHORS
-} from './data.js?v=s25c';
+} from './data.js?v=s31';
 import {
   HEX_NODES, HEX_CARD_MAP, hasHex, getHexInstance, getBondTier
-} from './hextech.js?v=s25c';
+} from './hextech.js?v=s31';
 import {
   SEASONAL_MAP, detectCombos, rollSeasonalOfferIds
-} from './combos.js?v=s25c';
+} from './combos.js?v=s31';
 import {
   getMilestoneEventForTurn, rollMidTurnRandomEvent
-} from './events.js?v=s25c';
+} from './events.js?v=s31';
 import {
   advancePetYear
-} from './lifeFeatures.js?v=s25c';
+} from './lifeFeatures.js?v=s31';
 import {
   ensureDreamState, getDreamScheduleActions, executeDreamAction,
   rollDreamLifecycleEvent, applyDreamAnnualPassives, syncLegacyDreamFields
-} from './dreams.js?v=s25c';
+} from './dreams.js?v=s31';
+import { rollStageArcadeMoment } from './arcadeGames.js?v=s31';
 
 export function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -49,6 +50,11 @@ export function ensureSprint1State(s) {
   if (!Array.isArray(s.houseIdxHistory)) s.houseIdxHistory = [98, 100, 102];
   if (typeof s.goldAvgCost !== 'number') s.goldAvgCost = s.goldPrice || 720;
   if (typeof s.hexGuideShown !== 'boolean') s.hexGuideShown = false;
+  // Sprint 3：街角游艺厅评级记录、首通 S 重随券记录与每季防刷限额
+  if (!s.arcadeBestGrades || typeof s.arcadeBestGrades !== 'object') s.arcadeBestGrades = {};
+  if (!Array.isArray(s.arcadeFirstS)) s.arcadeFirstS = [];
+  if (!Array.isArray(s.seenArcadeMoments)) s.seenArcadeMoments = [];
+  if (typeof s.arcadePlayedThisTurn !== 'boolean') s.arcadePlayedThisTurn = false;
   ensureDreamState(s);
   return s;
 }
@@ -1222,15 +1228,25 @@ export function executeTurn(state, draftIds) {
     triggeredEvent = getMilestoneEventForTurn(state);
   }
   const willGaokao = (state.age === 18 && state.subTurn === 2 && !state.gaokaoDone);
+  let arcadeMoment = null;
   if (!triggeredEvent && !willGaokao) {
-    midTurnEvent = rollDreamLifecycleEvent(state, draftIds) || rollMidTurnRandomEvent(state, draftIds);
+    // 追梦生命周期优先 -> 其次到龄到季自动跳出当期小游戏奇遇卡 -> 再次普通随机生活插曲
+    const dreamEv = rollDreamLifecycleEvent(state, draftIds);
+    if (dreamEv) {
+      midTurnEvent = dreamEv;
+    } else {
+      arcadeMoment = rollStageArcadeMoment(state, draftIds);
+      if (!arcadeMoment) {
+        midTurnEvent = rollMidTurnRandomEvent(state, draftIds);
+      }
+    }
   }
 
   // 检查提前谢幕
   if (state.stats.health <= 0) {
     state.ended = true;
     state.endReason = `${state.age} 岁因健康归零提前谢幕`;
-    return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent: null, midTurnEvent: null, yearEndReport: null, needGaokao: false };
+    return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent: null, midTurnEvent: null, arcadeMoment: null, yearEndReport: null, needGaokao: false };
   }
 
   // 推进子回合或进入年末决算
@@ -1238,6 +1254,7 @@ export function executeTurn(state, draftIds) {
   state.emoBuyThisTurn = false;
   state.lotteryThisTurn = false;
   state.tuckGiftThisTurn = false;
+  state.arcadePlayedThisTurn = false;
   if (state.pet) state.pet.pettedThisTurn = 0;
 
   // 18 岁第 2 子回合末触发高考节点
@@ -1249,7 +1266,7 @@ export function executeTurn(state, draftIds) {
   } else {
     yearEndReport = runYearEnd(state);
   }
-  return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent, midTurnEvent, yearEndReport, needGaokao };
+  return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent, midTurnEvent, arcadeMoment, yearEndReport, needGaokao };
 }
 
 export function runYearEnd(state) {
