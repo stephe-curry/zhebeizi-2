@@ -336,7 +336,9 @@ export function ensureRomanceState(state) {
 
 export function getCandidatePoolForAge(state) {
   const g = state.gender === 'female' ? 'female' : 'male';
-  if (state.age >= 16 && state.age <= 18) return { mode: 'hs', title: '高中同学录', list: HS_CANDIDATES[g] };
+  if (state.age >= 13 && state.age <= 18) {
+    return { mode: 'hs', title: state.age <= 15 ? '青春同学录' : '高中同学录', list: HS_CANDIDATES[g] };
+  }
   if (state.age >= 19) return { mode: 'adult', title: '相亲角与缘分', list: ADULT_CANDIDATES[g] };
   return { mode: 'locked', title: '青春尚未启封', list: [] };
 }
@@ -445,10 +447,12 @@ export function checkPartnerBreakupOnTurnEnd(state, interactedThisTurn) {
 }
 
 // 打开「先选人 -> 再进入一对一二选一对话」弹窗
-export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onChanged, preselectId = null) {
+export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onChanged, preselectId = null, opts = {}) {
   await ensureRomancePortraits();
   ensureRomanceState(state);
   const poolInfo = getCandidatePoolForAge(state);
+  const bonusFreeChat = Boolean(opts && opts.bonusFreeChat);
+  let bonusUsed = false;
   // P1-09：若已有校园/成年恋人，默认直达恋人对话页（即使校园恋人跨入 19+ 岁也可继续聊天！）
   let activeId = preselectId || (state.relations?.partner?.id && findCandidateMeta(state.relations.partner.id) ? state.relations.partner.id : null);
   let lastFeedback = null;
@@ -456,6 +460,7 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
   const renderHub = () => {
     const partner = state.relations?.partner || null;
     const list = poolInfo.list;
+    const hasFreeChatQuota = (bonusFreeChat && !bonusUsed) || !state.romance.chattedThisTurn;
 
     // Step 1: 选人列表页
     if (!activeId) {
@@ -467,7 +472,7 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
                 <div class="wb-title">${poolInfo.title}</div>
                 <div class="wb-sub">${partner ? `当前与 ${partner.name} 恋爱中 · 专一锁定` : '先选一位心仪对象，再进入一对一聊天（每季免费 1 次）'}</div>
               </div>
-              <span class="wb-cnt">${state.romance.chattedThisTurn ? '本季已聊' : '可免费聊 1 次'}</span>
+              <span class="wb-cnt">${hasFreeChatQuota ? (bonusFreeChat && !bonusUsed ? '偶遇免费聊 1 次' : '可免费聊 1 次') : '本季已聊'}</span>
             </div>
 
             <div class="rom-list">
@@ -538,7 +543,7 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
     const swapOrder = (idx + state.age) % 2 === 1;
     const opt1 = swapOrder ? { ...chatObj.bad, isGood: false } : { ...chatObj.good, isGood: true };
     const opt2 = swapOrder ? { ...chatObj.good, isGood: true } : { ...chatObj.bad, isGood: false };
-    const canChatNow = !state.romance.chattedThisTurn && !lastFeedback;
+    const canChatNow = hasFreeChatQuota && !lastFeedback;
     const canConfess = !partner && aff >= 60;
 
     const html = `
@@ -606,7 +611,11 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
             state.relations.partner.missedTurns = 0;
             state.romance.warnedCold = false;
           }
-          state.romance.chattedThisTurn = true;
+          if (bonusFreeChat && !bonusUsed) {
+            bonusUsed = true;
+          } else {
+            state.romance.chattedThisTurn = true;
+          }
           state.romance.chatIdx[cand.id] = (state.romance.chatIdx[cand.id] || 0) + 1;
           if (isGood && chatObj.good.bonus) {
             const b = chatObj.good.bonus;

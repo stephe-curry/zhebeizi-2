@@ -13,6 +13,7 @@ import {
   ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
   rollOrGetExamResult, getStudentExamPreview
 } from './examSystem.js?v=s60';
+import { HS_CANDIDATES } from './romanceSystem.js?v=s60';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -117,6 +118,21 @@ export function getMilestoneEventForTurn(state) {
       }
     },
     {
+      id: 'ms_romance_13', age: 13, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+      build: () => {
+        const g = state.gender === 'female' ? 'female' : 'male';
+        const names = (HS_CANDIDATES[g] || HS_CANDIDATES.male).map(c => `${c.name}（${c.tag}）`).join('、');
+        return {
+          title: '课间走廊的心动 · 青春同学录启封',
+          summary: `【13 岁青春开启】升入初中后的晴朗午后，你在走廊与操场结识了三位性格迥异的同龄人：${names}。解锁「青春同学录」，往后每季皆可免费找心仪同学聊 1 次（好感度满 60 可表白恋爱，一切凭心意）。`,
+          choices: [
+            { label: '立刻翻开「青春同学录」，找心仪的同学聊两句（解锁同学录，心态 +3，表达 +1）', effects: { mood: 3, expr: 1, openRomanceAfter: true, photo: '13岁青春同学录启封' } },
+            { label: '先把这份小心动写进日记，专心备战初中功课（学识 +2，心态 +2，随时可在亲友梦打开）', effects: { knowledge: 2, mood: 2 } }
+          ]
+        };
+      }
+    },
+    {
       id: 'ms_zhongkao_15', age: 15, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
       build: () => {
         const rep = rollOrGetExamResult(state, 'zk');
@@ -190,6 +206,30 @@ export function getMilestoneEventForTurn(state) {
           choices: [
             { label: '立下冲刺军令状猛攻弱科（全科扎实度 +3，留存冲刺特招资格，疲劳 +2）', effects: { subjBoost: { chn: 3, math: 3, eng: 3, sci: 3, art: 3 }, fatigue: 2, exp: 'exp_gaokao_sprint', statusBuff: { id: 'bf_sprint', name: '考前手感', turns: 2, type: 'pos', desc: '冲刺吸收效率提升' } } },
             { label: '稳住心态早睡早起收窄发挥波动（心态 +8，疲劳 -4，健康 +2）', effects: { mood: 8, fatigue: -4, health: 2 } }
+          ]
+        };
+      }
+    },
+    {
+      id: 'ms_romance_adult_22', age: 22, subTurn: 2, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+      build: () => {
+        const p = state.relations?.partner;
+        if (p) {
+          return {
+            title: `走出校门后的爱情长跑 · ${p.name}`,
+            summary: `【22 岁感情节点】步入社会后节奏骤然加快，你与 ${p.name}（当前好感度 ${p.intimacy}）迎来了校园到职场的新阶段，抽空约一顿晚饭聊聊彼此的未来规划吧。`,
+            choices: [
+              { label: `立刻约 ${p.name} 见面深聊（好感度 +4，心态 +3，打开一对一聊天）`, effects: { partnerInt: 4, mood: 3, openRomanceAfter: true } },
+              { label: '互发一条晚安消息，先把各自的工作站稳脚跟（专业 +2，自理 +1）', effects: { pro: 2, selfCare: 1 } }
+            ]
+          };
+        }
+        return {
+          title: '步入社会后的第一次相亲局',
+          summary: '【22 岁缘分开启】刚踏入职场不久，热心的长辈和同事纷纷给你牵线介绍同城单身对象。「相亲角与缘分」已备好三位不同背景的新朋友，去不去全凭心意。',
+          choices: [
+            { label: '周末换身清爽衣服，去街角咖啡馆见见新朋友（心态 +3，表达 +1，打开相亲角）', effects: { mood: 3, expr: 1, openRomanceAfter: true } },
+            { label: '婉谢好意，先把全部精力留给事业与攒钱（专业 +2，自理 +2）', effects: { pro: 2, selfCare: 2 } }
           ]
         };
       }
@@ -327,6 +367,24 @@ export const RANDOM_EVENT_POOL = [
   },
 
   // ---------- s2 青春校园 (13–18 岁) ----------
+  {
+    id: 're_s2_romance_umbrella', stage: 's2', minAge: 14, maxAge: 18, gender: 'any', actionTags: ['study_lit', 'study_num', 'accompany_friend', 'exercise'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    title: '放学突降阵雨 · 屋檐下的半边伞',
+    summary: '傍晚教学楼外突然下起急雨，没带伞的你正望着雨帘发呆，身旁熟悉的身影轻轻递来半边雨伞。',
+    choices: [
+      { label: '并肩撑伞走去车站，顺路聊聊最近的心事（心态 +3，伴侣好感度 +3，打开青春同学录聊 1 次）', effects: { mood: 3, partnerInt: 3, openRomanceAfter: true } },
+      { label: '笑着道谢后冒雨一路冲回家换干衣服（健康 +1，自理 +2）', effects: { health: 1, selfCare: 2 } }
+    ]
+  },
+  {
+    id: 're_s2_romance_afterschool', stage: 's2', minAge: 14, maxAge: 18, gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'rest', 'accompany_friend'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    title: '夕阳操场边的课后邀约',
+    summary: '晚自习前的操场染着橘色余晖，同学录里那位让你格外在意的身影朝你招了招手，问要不要一起去校门口买冰汽水。',
+    choices: [
+      { label: '欣然赴约，借着晚风好好聊上一场（心态 +3，表达 +1，伴侣好感度 +3，打开青春同学录）', effects: { mood: 3, expr: 1, partnerInt: 3, openRomanceAfter: true } },
+      { label: '挥手示意改天再约，趁头脑清醒回教室刷两道题（学识 +1，数理 +1）', effects: { knowledge: 1, numLogic: 1 } }
+    ]
+  },
   {
     id: 're_s2_note', stage: 's2', gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'accompany_friend'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '课桌下悄悄传来的折纸条',
@@ -517,7 +575,7 @@ export const RANDOM_EVENT_POOL = [
     title: '下班在车库/楼下独自坐了十分钟',
     summary: '【男主线切片】熄火后没急着上楼，听完电台里一整首老歌。',
     choices: [
-      { label: '深呼吸卸下重担回家吃热饭（心态 +5，疲劳 -3，伴侣/父母亲密 +2）', effects: { mood: 5, fatigue: -3, parentInt: 2, partnerInt: 2 } },
+      { label: '深呼吸卸下重担回家吃热饭（心态 +5，疲劳 -3，父母亲密 +2，伴侣好感度 +2）', effects: { mood: 5, fatigue: -3, parentInt: 2, partnerInt: 2 } },
       { label: '顺手复盘今年财务账本做规划（自理 +3，心态 +2）', effects: { selfCare: 3, mood: 2 } }
     ]
   },
@@ -754,6 +812,8 @@ export function rollMidTurnRandomEvent(state, draftIds = []) {
     if (ev.reqFlag && !(state.eventFlags || []).includes(ev.reqFlag)) return false;
     if (ev.eraYear && ev.eraYear !== year) return false;
     if (ev.stage && ev.stage !== stage) return false;
+    if (typeof ev.minAge === 'number' && state.age < ev.minAge) return false;
+    if (typeof ev.maxAge === 'number' && state.age > ev.maxAge) return false;
     return true;
   });
 
@@ -790,6 +850,7 @@ export function applyEventChoiceEffects(state, choice) {
   let msg = '';
   let ef = choice.effects || {};
   let openTuckAfter = false;
+  let openRomanceAfter = false;
   let photoCaption = null;
 
   // 概率小博弈分支（联动天选锦鲤 +25% 胜率 & 奇遇4保底不亏）
@@ -877,6 +938,7 @@ export function applyEventChoiceEffects(state, choice) {
   if (ef.rerollTicket) state.hexRerollTickets = (state.hexRerollTickets || 0) + ef.rerollTicket;
   if (ef.unlockTuck) state.tuckUnlocked = true;
   if (ef.openTuckAfter) openTuckAfter = true;
+  if (ef.openRomanceAfter) openRomanceAfter = true;
   if (ef.adoptPet) {
     adoptPet(state, ef.adoptPet);
     msg = `欢迎「${PET_CATALOG[ef.adoptPet]?.defaultName}」入住你的小家！在主页点它即可摸头互动`;
@@ -964,5 +1026,5 @@ export function applyEventChoiceEffects(state, choice) {
   }
   if (ef.photo) photoCaption = ef.photo;
 
-  return { msg, openTuckAfter, photoCaption, launchClimaxArcade, launchQualifierArcade };
+  return { msg, openTuckAfter, openRomanceAfter, photoCaption, launchClimaxArcade, launchQualifierArcade };
 }

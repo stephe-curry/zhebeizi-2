@@ -206,7 +206,7 @@ export function computeWishbookData(state, getNetWorthFn) {
         {
           id: 'w_hs_love',
           title: '青春白月光',
-          how: '高中时期在同学录里聊出高好感度并勇敢表白，谈一场校园初恋',
+          how: '中学时期在同学录里聊出高好感度并勇敢表白，谈一场校园初恋',
           curText: hsLoved ? '已盖章 · 难忘校园初恋' : '未达成 0 / 1',
           pct: hsLoved ? 100 : 0,
           done: hsLoved,

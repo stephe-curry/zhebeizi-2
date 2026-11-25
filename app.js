@@ -1209,7 +1209,7 @@ function renderSocialTab(budget) {
           `).join('')}
         </div>
         <div class="pill-actions">
-          ${state.age >= 16 && state.age <= 18 ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} 高中同学录 · 聊天</button>` : ''}
+          ${state.age >= 13 && state.age <= 18 ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} ${state.age <= 15 ? '青春同学录' : '高中同学录'} · 聊天</button>` : ''}
           ${state.age >= 19 && !state.relations.partner ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} 相亲角与缘分</button>` : ''}
           ${state.relations.partner && state.age >= 19 ? `<button class="pill-btn soft" id="t-romance-hub">${pxIcon('heart', 14)} 找${state.relations.partner.name}聊天</button>` : ''}
           ${state.relations.partner && !state.relations.partner.married && state.age >= 22 ? `<button class="pill-btn primary" id="t-marry">${pxIcon('heart', 14)} 谈婚论嫁</button>` : ''}
@@ -2175,6 +2175,15 @@ function showApprovedEventV3(ev, next, opts = {}) {
           openTuckShopSheet();
           return;
         }
+        if (res.openRomanceAfter) {
+          openRomanceHubModal(state, mountOverlay, clearOverlay, (msg) => {
+            saveAutoProgress();
+            render();
+            if (msg) showToast(msg);
+            if (next) next();
+          }, null, { bonusFreeChat: true });
+          return;
+        }
         if (res.msg) showToast(res.msg);
         if (next) next();
       };
@@ -2920,9 +2929,9 @@ function openMarrySheet() {
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
     <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('heart', 17)} 谈婚论嫁（开启双收入合账）</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
-      <button class="action-card" data-w="30000,4" ${p.intimacy<75?'disabled':''}><div class="ac-top"><span>极简领证</span><span>-3万 (需亲密≥75)</span></div></button>
-      <button class="action-card" data-w="250000,10"><div class="ac-top"><span>体面婚礼</span><span>-25万 (亲密+10)</span></div></button>
-      <button class="action-card" data-w="500000,16"><div class="ac-top"><span>盛大婚礼</span><span>-50万 (亲密+16)</span></div></button>
+      <button class="action-card" data-w="30000,4" ${p.intimacy<75?'disabled':''}><div class="ac-top"><span>极简领证</span><span>-3万 (需好感度≥75)</span></div></button>
+      <button class="action-card" data-w="250000,10"><div class="ac-top"><span>体面婚礼</span><span>-25万 (好感度+10)</span></div></button>
+      <button class="action-card" data-w="500000,16"><div class="ac-top"><span>盛大婚礼</span><span>-50万 (好感度+16)</span></div></button>
     </div>
     <div class="mg-actions"><button class="btn ghost" id="c">再等等</button></div>
   </div></div>`, host => {
