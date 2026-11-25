@@ -2,58 +2,58 @@
 // 核心架构：V4 整屏拍立得 ⇄ V5 撕纸贴纸盘(Combo+季节限定) ⇄ 1.8s过场剧场 ⇄ 命运海克斯 2.0 ⇄ V3 定格
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS, PROMO_REQ
-} from './data.js?v=s60';
+} from './data.js?v=s70';
 import {
   clamp, monthlyPmt, getSubStage, getSubStageIndex, getDateStamp, getMacroParams,
   createInitialState, ensureSprint1State, getEffectiveFatigueLimit, getPendingHextechAge,
   getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
   getTurnSlotBudget, getAvailableActions, previewDraft, executeTurn, getNetWorth, evaluateEnding
-} from './engine.js?v=s60';
+} from './engine.js?v=s70';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_CARD_MAP, hasHex, getHexInstance,
   getHexBondCounts, getBondTier, getNewBondTriggersForCard,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s60';
+} from './hextech.js?v=s70';
 import {
   SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
-} from './combos.js?v=s60';
+} from './combos.js?v=s70';
 import {
   applyEventChoiceEffects
-} from './events.js?v=s60';
+} from './events.js?v=s70';
 import {
   getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
   TUCK_CARDS_12, TUCK_GOODS, drawSnackCard, buyTuckGood, buyTuckGift,
   getOrRollHouseListings
-} from './lifeFeatures.js?v=s60';
+} from './lifeFeatures.js?v=s70';
 import {
   applyGracefulPivot, DREAM_CATALOG, rollDreamLifecycleEvent,
   settleDreamQualifier, settleDreamClimax, addKeepsakeWithStory
-} from './dreams.js?v=s60';
+} from './dreams.js?v=s70';
 import {
   triggerHaptic, playComboCollisionVfx, openHextechV4Modal,
   renderNewAssetsTab, bindNewAssetsInteractions, renderDreamJournalSection
-} from './vfxAndUi.js?v=s60';
-import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s60';
+} from './vfxAndUi.js?v=s70';
+import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s70';
 import {
   rollStageArcadeMoment, openRingTossGame, openNostalgiaLinkGame, openBellDashGame,
   openWorkSliceGame, openRedPacketRainGame, openLakeFishingGame
-} from './arcadeGames.js?v=s60';
-import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s60';
-import { openTuckShopV2, openCardSlapModal } from './tuckShopV2.js?v=s60';
-import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s60';
+} from './arcadeGames.js?v=s70';
+import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s70';
+import { openTuckShopV2, openCardSlapModal } from './tuckShopV2.js?v=s70';
+import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s70';
 import {
   SUBJECT_META, getSelectableSubjects, getStageTextbookCap, getLifeStageCompass,
   getStudentExamPreview, rollOrGetExamResult, CHILD_POLICIES,
   ensureChildExamProfile, getChildExamPreviewSummary
-} from './examSystem.js?v=s60';
-import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s60';
-import { pxIcon, chevDownIcon, lineNavIcon } from './icons.js?v=s60';
-import { getHudDualProgressBars, computeWishbookData, openWishbookModal } from './wishbook.js?v=s60';
-import { openSportsDayTournament } from './sportsDay.js?v=s60';
+} from './examSystem.js?v=s70';
+import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s70';
+import { pxIcon, chevDownIcon, lineNavIcon } from './icons.js?v=s70';
+import { getHudDualProgressBars, computeWishbookData, openWishbookModal } from './wishbook.js?v=s70';
+import { openSportsDayTournament } from './sportsDay.js?v=s70';
 import {
   ensureRomanceState, getCandidatePoolForAge, openRomanceHubModal,
   playerBreakupPartner
-} from './romanceSystem.js?v=s60';
+} from './romanceSystem.js?v=s70';
 
 const appEl = document.getElementById('app');
 
@@ -62,6 +62,7 @@ let sprites = { male: null, female: null };
 let activeTab = 'home'; // 'home' | 'assets' | 'social' | 'album'
 let memorialPreviewMode = false; // P0-05：预览纪念册仅只读，绝不结案或清档
 let drawerOpen = false;
+let drawerCat = 'all'; // 排程抽屉分类过滤：all | study | life | social | seasonal
 let inspectedId = null; // 方案 A：单行预览条当前聚焦的行动卡 ID
 let moreMenuOpen = false; // 抽屉右上角 ··· 浮层菜单
 let draft = [];
@@ -619,10 +620,36 @@ async function initSpritesAndRender() {
       s.hexTriggeredAges = [6, 12, 18];
       state = s;
       activeTab = 'home';
+    } else if (preset === 's7home' || preset === 's7drawer') {
+      const s = createInitialState('teacher', 't_shelf', 'male');
+      s.age = 16; s.subTurn = 2; s.totalTurns = 30; s.cash = 9809;
+      s.stats.health = 100; s.stats.mood = 100;
+      s.stats.knowledge = 88; s.stats.numLogic = 96;
+      s.schoolTier = 'key_high';
+      s.hexCards = [{ id: 'hx_study_1', acquiredAge: 6, stacks: 0 }, { id: 'hx_time_master', acquiredAge: 12, stacks: 0 }];
+      s.hexTriggeredAges = [6, 12];
+      s.lastDraft = ['study_lit', 'study_num', 'exercise', 'rest'];
+      state = s;
+      activeTab = 'home';
+      if (preset === 's7drawer') {
+        drawerOpen = true;
+        draft = ['gaokao_sprint', 'chores'];
+      }
+    } else if (preset === 's7sports') {
+      const g = params.get('g') === 'female' ? 'female' : 'male';
+      const s = createInitialState('welloff', 't_book', g);
+      s.age = 14; s.subTurn = 2; s.totalTurns = 24; s.hexTriggeredAges = [6, 12];
+      state = s;
+      activeTab = 'home';
     }
   } catch (_) {}
   render();
-  if (window.location.search.includes('preset=arcade')) {
+  if (window.location.search.includes('preset=s7sports')) {
+    const p = new URLSearchParams(window.location.search);
+    const evt = p.get('evt') || '';
+    const rnd = Number(p.get('rnd') || 0);
+    setTimeout(() => openSportsDayTournament(state, mountOverlay, clearOverlay, () => render(), evt ? { autoEventId: evt, autoRoundIdx: rnd } : {}), 120);
+  } else if (window.location.search.includes('preset=arcade')) {
     const m = rollStageArcadeMoment(state, []);
     if (m) setTimeout(() => showStageArcadePopup(m), 120);
   } else if (window.location.search.includes('preset=qual')) {
@@ -729,54 +756,65 @@ function render() {
 
     const dualBars = getHudDualProgressBars(state);
     const wishSnap = computeWishbookData(state, getNetWorth);
+    const stagePrev = previewDraft(state, draft);
+    const stageBubbleHtml = buildStageScheduleBubble(actions, budget, stagePrev);
 
     bodyHtml = `
-      <div class="v5-home-wrapper">
-        <!-- L1 顶部双层融合栏：第一层生存四维 + 第二层当期核心双属性进度条（无独立中考进度条！） -->
-        <div class="v5-hud-dual">
-          <div class="v5-hud-row1">
-            <button class="v5-pill age-pill" id="hud-era" title="查看时代简报">
-              <span class="vp-val">${state.age}岁</span>
-            </button>
-            <button class="v5-pill cash-pill" id="hud-cash" title="进入家与账">
-              ${pxIcon('coin', 15)}
-              <span class="vp-val">¥${fmtMoney(state.cash)}</span>
-              ${livePrev && livePrev.cash !== 0 ? `<span class="pill-delta ${livePrev.cash>0?'pos':'neg'}">${livePrev.cash>0?'+':'-'}¥${fmtMoney(Math.abs(livePrev.cash))}</span>` : ''}
-            </button>
-            <div class="v5-pill stat-pill" id="hud-health">
-              ${pxIcon('heart', 14)}
-              <div class="vp-col">
-                <span class="vp-val" style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span>
-                <div class="vp-bar"><i style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></i></div>
-              </div>
-              ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健') : ''}
-            </div>
-            <div class="v5-pill stat-pill" id="hud-mood">
-              ${pxIcon('smile', 14)}
-              <div class="vp-col">
-                <span class="vp-val" style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span>
-                <div class="vp-bar"><i style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></i></div>
-              </div>
-              ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心') : ''}
-            </div>
-          </div>
-
-          <div class="v5-hud-row2">
-            ${dualBars.map(b => {
-              const pct = Math.min(100, Math.round((b.cur / Math.max(1, b.max)) * 100));
-              return `
-                <div class="v5-axis-box">
-                  <div class="v5-ab-top">
-                    <span class="v5-ab-nm">${pxIcon(b.ico, 13)} ${b.label}</span>
-                    <b class="v5-ab-num" style="color:${b.txt};">${b.cur} / ${b.max}</b>
-                  </div>
-                  <div class="v5-ab-track" style="background:${b.bg};">
-                    <i style="width:${pct}%;background:${b.fill};"></i>
-                  </div>
+      <div class="v5-home-wrapper ${drawerOpen ? 'drawer-open' : ''}" id="v5-home-wrap">
+        <!-- L1 静息态顶部双层栏：左侧纯年龄陶土橙印章 + 右侧双行留白网格（无独立中考进度条） -->
+        <div class="v5-hud-dual" id="v5-hud-dual">
+          <button class="v5-age-stamp" id="hud-era" title="查看时代简报">
+            <span class="vas-num">${state.age}<small>岁</small></span>
+          </button>
+          <div class="v5-hud-right">
+            <div class="v5-hud-row1">
+              <button class="v5-cell cash-cell" id="hud-cash" title="进入家与账">
+                ${pxIcon('coin', 16)}
+                <span class="vc-val">¥${fmtMoney(state.cash)}</span>
+              </button>
+              <div class="v5-cell stat-cell" id="hud-health">
+                ${pxIcon('heart', 15)}
+                <div class="vc-mini">
+                  <span class="vc-val" style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span>
+                  <div class="vc-bar"><i style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'#5e9e6e'}"></i></div>
                 </div>
-              `;
-            }).join('')}
+              </div>
+              <div class="v5-cell stat-cell" id="hud-mood">
+                ${pxIcon('smile', 15)}
+                <div class="vc-mini">
+                  <span class="vc-val" style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span>
+                  <div class="vc-bar"><i style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></i></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="v5-hud-row2">
+              ${dualBars.map(b => {
+                const pct = Math.min(100, Math.round((b.cur / Math.max(1, b.max)) * 100));
+                return `
+                  <div class="v5-axis-clean">
+                    <div class="vac-top">
+                      <span class="vac-nm">${pxIcon(b.ico, 13)} ${b.label}</span>
+                      <b class="vac-num" style="color:${b.txt};">${b.cur}<small> /${b.max}</small></b>
+                    </div>
+                    <div class="vac-track">
+                      <i style="width:${pct}%;background:${b.fill};"></i>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
           </div>
+        </div>
+
+        <!-- L1-Mini 展开排程态自动收起的 38px 单行胶囊顶栏（方案 A 定稿） -->
+        <div class="v5-hud-mini" id="v5-hud-mini">
+          <button class="vhm-age" id="hud-era-mini" title="查看时代简报">${state.age}岁</button>
+          <button class="vhm-item" id="hud-cash-mini" title="进入家与账">${pxIcon('coin', 14)}<span>¥${fmtMoney(state.cash)}</span></button>
+          <span class="vhm-sep"></span>
+          <div class="vhm-item">${pxIcon('heart', 14)}<span style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span></div>
+          <span class="vhm-sep"></span>
+          <div class="vhm-item">${pxIcon('smile', 14)}<span style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span></div>
         </div>
 
         <!-- L2 100% 全屏通铺轻像素生活全景舞台（与悬浮撕边手账纸无缝联动） -->
@@ -816,12 +854,14 @@ function render() {
             </button>
           ` : ''}
           <div class="hero-anchor v5-hero ${animCls}" id="hero-tap">
-            ${heroStageAnim?.bubble ? `<div class="hero-speech">${heroStageAnim.bubble}</div>` : (bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : '')}
+            ${(!drawerOpen && heroStageAnim?.bubble) ? `<div class="hero-speech">${heroStageAnim.bubble}</div>` : (!drawerOpen && bubbleUrl ? `<img class="hero-bubble" src="${bubbleUrl}" />` : '')}
             ${heroStageAnim?.prop ? `<div class="hero-prop">${pxIcon(heroStageAnim.prop, 20)}</div>` : ''}
             ${heroStageAnim?.subProp ? `<div class="hero-prop-sub">${pxIcon(heroStageAnim.subProp, 14)}</div>` : ''}
             ${spUrl ? `<img class="hero-sprite" src="${spUrl}" />` : ''}
             <div class="hero-shadow"></div>
           </div>
+          <!-- 展开排程态右侧实时收益手账气泡（方案 A 定稿） -->
+          ${stageBubbleHtml}
           ${comboBurstText ? `<div class="combo-burst">${pxIcon('combo', 15)} ${comboBurstText}</div>` : ''}
           ${floatPops.length ? `<div class="float-layer">${floatPops.map((p, idx) => `<div class="float-pop ${p.k}" style="animation-delay:${idx*140}ms;left:${48 + (idx%2===0?-8:8)}%;">${p.text}</div>`).join('')}</div>` : ''}
           ${theaterState ? `
@@ -850,7 +890,7 @@ function render() {
           <div class="v5-cross-tape green"></div>
           <div class="v5-cross-tape pink"></div>
 
-          <!-- 静息折叠态内容（彻底清空冗余目标框，还原纯粹暖系手账呼吸感） -->
+          <!-- 静息折叠态内容（对齐定稿参考图：季节标题 + 下一路标提示卡 + 陶土橙大按钮 + 底栏导航） -->
           <div class="v5-rest-view">
             <div class="v5-season-row">
               <div class="season-caption">${getSeasonTitle(state)}</div>
@@ -859,8 +899,18 @@ function render() {
               </div>
             </div>
 
+            ${compass ? `
+              <div class="v5-compass-card" id="btn-compass-home" title="查看阶段目标详情">
+                <div class="vc-top">
+                  <span class="vc-kicker">${(compass.kicker || '下一个路标').replace(/^下一关 · /, '下一个路标：')}</span>
+                  ${compass.badge ? `<span class="vc-badge">${compass.badge}</span>` : ''}
+                </div>
+                <div class="vc-main">${compass.main || `${dualBars.map(b => `${b.label} ${b.cur}`).join(' / ')} 稳步提升中`}</div>
+              </div>
+            ` : ''}
+
             ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
-            <button class="cta-main v5-cta" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText}</button>
+            <button class="cta-main v5-cta" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText} <span class="v5-cta-pill">${budget.available} 格</span></button>
 
             <!-- 内嵌于手账纸底沿的极简细棕线 4 Tab 导航栏 -->
             ${navTabsHtml('v5-inline-nav')}
@@ -894,86 +944,108 @@ function render() {
   bindMainEvents(actions, budget, cornerSticker);
 }
 
+function buildStageScheduleBubble(actions, budget, prev) {
+  const isFull = draft.length >= budget.available;
+  const inspected = actions.find(a => a.id === inspectedId) || null;
+  const queuedNames = draft.map(id => {
+    const a = actions.find(x => x.id === id);
+    return a ? getActionMeta(a, state).short : id;
+  });
+
+  // 估算排入贴纸对当期核心属性的加成展示
+  let knowGain = 0, numGain = 0, proGain = 0, exprGain = 0;
+  for (const id of draft) {
+    if (id === 'study_lit') knowGain += 3;
+    else if (id === 'study_num') numGain += 3;
+    else if (id === 'study_tutor') { knowGain += 2; numGain += 2; }
+    else if (id === 'gaokao_sprint') { knowGain += 3; numGain += 3; }
+    else if (id === 'uni_study') { knowGain += 2; proGain += 2; }
+    else if (id === 'uni_intern' || id === 'pro_self' || id === 'pro_course') proGain += 3;
+    else if (id === 'accompany_friend' || id === 'date_partner') exprGain += 2;
+  }
+
+  const deltaChips = [];
+  if (knowGain > 0) deltaChips.push(`<span class="pos">学识 +${knowGain}</span>`);
+  if (numGain > 0) deltaChips.push(`<span class="pos">数理 +${numGain}</span>`);
+  if (proGain > 0) deltaChips.push(`<span class="pos">专业 +${proGain}</span>`);
+  if (exprGain > 0 && deltaChips.length < 2) deltaChips.push(`<span class="pos">表达 +${exprGain}</span>`);
+  if (prev.cash !== 0) deltaChips.push(`<span class="${prev.cash > 0 ? 'pos' : 'neg'}">${prev.cash > 0 ? '+' : '-'}¥${fmtMoney(Math.abs(prev.cash))}</span>`);
+  if (prev.health !== 0 && deltaChips.length < 4) deltaChips.push(`<span class="${prev.health > 0 ? 'pos' : 'neg'}">健康 ${prev.health > 0 ? '+' : ''}${prev.health}</span>`);
+  if (prev.mood !== 0 && deltaChips.length < 4) deltaChips.push(`<span class="${prev.mood > 0 ? 'pos' : 'neg'}">心态 ${prev.mood > 0 ? '+' : ''}${prev.mood}</span>`);
+  const fatDelta = prev.endFatigue - state.stats.fatigue;
+  if (fatDelta > 0) deltaChips.push(`<span class="neg">疲劳 +${fatDelta}</span>`);
+  else if (fatDelta < 0 && draft.length > 0) deltaChips.push(`<span class="pos">疲劳 ${fatDelta}</span>`);
+
+  const canReplace = isFull && inspected && !inspected.disabled && !draft.includes(inspected.id);
+  const subLine = draft.length > 0
+    ? queuedNames.join(' · ')
+    : (inspected ? `查看：${inspected.name}` : '轻点下方贴纸排入本季日程');
+
+  const bottomLine = draft.length > 0
+    ? (deltaChips.join('') || '<span class="pos">稳步积累中</span>')
+    : (inspected?.chips?.length
+      ? inspected.chips.slice(0, 3).map(c => `<span class="${c.k === 'down' || c.k === 'warn' ? 'neg' : 'pos'}">${c.t}</span>`).join('')
+      : '<span class="muted">发金光贴纸可撞出连携加成</span>');
+
+  return `
+    <div class="v5-stage-bubble" id="v5-stage-bubble">
+      <div class="vsb-hd">
+        <span>本季已排 <b>${draft.length} / ${budget.available}</b> 格${prev.combos.length ? ` · <em>${prev.combos[0].name}!</em>` : ''}</span>
+        ${canReplace ? `<button class="vsb-rep-btn" id="insp-replace">替换末格</button>` : ''}
+      </div>
+      <div class="vsb-names">${subLine}</div>
+      <div class="vsb-deltas">${bottomLine}</div>
+    </div>
+  `;
+}
+
+function matchDrawerCategory(act, catKey) {
+  if (catKey === 'all') return true;
+  if (catKey === 'seasonal') return Boolean(act.seasonal);
+  if (act.seasonal) return false;
+  const c = act.cat || '';
+  if (catKey === 'study') return c.startsWith('1.') || act.isDreamAction;
+  if (catKey === 'life') return c.startsWith('2.') || c.startsWith('6.');
+  if (catKey === 'social') return c.startsWith('3.') || c.startsWith('4.');
+  return true;
+}
+
 function renderV5Drawer(actions, budget, compass) {
   const prev = previewDraft(state, draft);
-  const cp = compass || getLifeStageCompass(state, draft, PROMO_REQ);
   const recMap = getRecommendedActionMap(state, actions);
   const isFirstTurn = (state.totalTurns || 0) === 0;
   const isFull = draft.length >= budget.available;
+  const dualBars = getHudDualProgressBars(state);
 
-  // 统计每张贴纸已排入次数（专属右上角 ×N 计数）
   const slotCounts = {};
   for (const id of draft) slotCounts[id] = (slotCounts[id] || 0) + 1;
 
-  // 解析当前预览条展示的行动卡
   const recFirstId = Object.keys(recMap)[0] || actions[0]?.id || null;
   let inspected = actions.find(a => a.id === inspectedId) || null;
   if (!inspected && !isFirstTurn) {
     inspected = actions.find(a => a.id === (draft[draft.length - 1] || recFirstId)) || actions[0] || null;
   }
 
-  // 构建顶部单行预览条 / 新手 3 步无遮罩引导条
-  let inspectorHtml = '';
-  if (isFirstTurn && draft.length === 0 && !inspected) {
-    inspectorHtml = `
-      <div class="v5-inspector guide-mode">
-        <div class="insp-well" style="--well-bg:var(--accent-soft);">${pxIcon('spark', 22)}</div>
-        <div class="insp-body">
-          <div class="insp-top">
-            <span class="insp-step">1/3</span>
-            <span class="insp-name">轻点下方贴纸，直接排进时间槽</span>
-          </div>
-          <div class="insp-sub">排入后在此看收益与代价 · 或点右上「帮我安排」</div>
-        </div>
-      </div>
-    `;
-  } else if (inspected) {
-    const meta = getActionMeta(inspected, state);
-    const inSlotCnt = slotCounts[inspected.id] || 0;
-    let rightEl = '';
-    let topTag = '';
-    if (inspected.disabled) {
-      topTag = `<span class="insp-tip">本年次数已满</span>`;
-    } else if (isFull && !inSlotCnt) {
-      topTag = `<span class="insp-tip">槽位已满</span>`;
-      rightEl = `<button class="insp-replace" id="insp-replace">替换末位</button>`;
-    } else if (isFull && isFirstTurn) {
-      topTag = `<span class="insp-tip done">✓ 已排满</span>`;
-    } else if (isFirstTurn && inSlotCnt > 0) {
-      topTag = `<span class="insp-step">2/3</span><span class="insp-tip">已入槽 · 点上方 ✕ 可撤</span>`;
-    } else if (recMap[inspected.id]) {
-      topTag = `<span class="fx-chip gold">${recMap[inspected.id]}推荐</span>`;
-    } else if (inSlotCnt > 0) {
-      topTag = `<span class="insp-tip done">已排 ×${inSlotCnt}</span>`;
-    }
+  const hasSeasonal = actions.some(a => a.seasonal);
+  const seasonalLabel = actions.find(a => a.seasonal)?.badge ? `${actions.find(a => a.seasonal).badge}限定` : '当季限定';
+  const catTabs = [
+    { id: 'all', lb: '全部' },
+    { id: 'study', lb: state.age <= 22 ? '学业' : '成长' },
+    { id: 'life', lb: '生活' },
+    { id: 'social', lb: '社交' }
+  ];
+  if (hasSeasonal) catTabs.push({ id: 'seasonal', lb: seasonalLabel.replace(/限定限定$/, '限定') });
+  if (!catTabs.some(t => t.id === drawerCat)) drawerCat = 'all';
+  const visibleActions = actions.filter(a => matchDrawerCategory(a, drawerCat));
 
-    inspectorHtml = `
-      <div class="v5-inspector ${isFirstTurn ? 'guide-mode' : ''}">
-        <div class="insp-well" style="--well-bg:${meta.wellBg};">${pxIcon(meta.ico, 22)}</div>
-        <div class="insp-body">
-          <div class="insp-top">
-            <span class="insp-name">${inspected.name}</span>
-            ${inspected.costCash > 0 ? `<span class="insp-cost">¥${fmtMoney(inspected.costCash)}</span>` : ''}
-            ${topTag}
-          </div>
-          <div class="chip-row">
-            ${(inspected.chips || []).map(c => `<span class="fx-chip ${c.k}">${c.t}</span>`).join('')}
-          </div>
-        </div>
-        ${rightEl}
-      </div>
-    `;
-  }
-
-  // 主工具按钮：首季/无历史显示「帮我安排」，有历史显示「沿用上次」（帮排也在 ··· 里随时可用）
   const useReuseAsPrimary = !isFirstTurn && state.lastDraft.length > 0;
   const primaryToolHtml = useReuseAsPrimary
-    ? `<button class="smart-btn" id="v5-reuse">↺ 沿用上次</button>`
+    ? `<button class="smart-btn" id="v5-reuse">沿用上次</button>`
     : `<button class="smart-btn" id="v5-smart">${pxIcon('spark', 13)} 帮我安排</button>`;
 
   const remain = Math.max(0, budget.available - draft.length);
   const goPillHtml = isFirstTurn && isFull
-    ? `<span class="go-pill">3/3 点这里出发</span>`
+    ? `<span class="go-pill">点这里出发</span>`
     : remain > 0
       ? `<span class="go-pill">差 ${remain} 格</span>`
       : `<span class="go-pill">已排满</span>`;
@@ -989,10 +1061,15 @@ function renderV5Drawer(actions, budget, compass) {
     </div>
   ` : '';
 
+  const axisSubTxt = dualBars.map(b => `${b.label} ${b.cur}/${b.max}`).join(' · ');
+
   return `
     <div class="v5-drawer-inner">
       <div class="v5-head">
-        <span class="v5-title">本季安排<b>${draft.length}/${budget.available}</b> <small class="v5-axis-mini">${state.age <= 18 ? `学识${state.stats.knowledge} · 数理${state.stats.numLogic}` : `专业${state.stats.pro} · 表达${state.stats.expr}`}</small></span>
+        <div class="v5-head-left">
+          <div class="v5-title">本季安排 <b>${draft.length}/${budget.available}</b></div>
+          <div class="v5-axis-sub">${axisSubTxt}</div>
+        </div>
         <div class="v5-tools">
           ${primaryToolHtml}
           <button class="ico-btn" id="v5-more-toggle" aria-label="更多操作">···</button>
@@ -1011,56 +1088,54 @@ function renderV5Drawer(actions, budget, compass) {
       <div class="v5-slots ${budget.available >= 5 ? 'five' : ''}" style="grid-template-columns: repeat(${Math.min(7, budget.available)}, 1fr);">
         ${draft.map((id, i) => {
           const a = actions.find(x => x.id === id);
-          const m = a ? getActionMeta(a, state) : { short: id, slotBg: 'var(--accent-soft)', slotFg: 'var(--accent)' };
-          return `<button class="stamp-slot filled" style="--slot-bg:${m.slotBg};--slot-fg:${m.slotFg};" data-rm="${i}" title="点击移除">${m.short}<span class="sx">×</span></button>`;
+          const m = a ? getActionMeta(a, state) : { short: id };
+          return `<button class="stamp-slot filled" data-rm="${i}" title="点击移除">${m.short}<span class="sx">×</span></button>`;
         }).join('')}
-        ${Array.from({ length: remain }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
+        ${Array.from({ length: remain }).map(() => `<span class="stamp-slot">+ 空槽</span>`).join('')}
       </div>
 
       ${subjSelectorHtml}
 
-      <div class="combo-live-strip ${prev.combos.length ? 'lit' : ''}">
-        ${pxIcon('combo', 13)}
-        <span class="cb-txt">${prev.combos.length
-          ? `已激活连携：${prev.combos.map(c => c.name).join(' + ')}${hasHex(state, 'hx_time_master') ? ' (翻倍)' : ''}`
-          : `发金光贴纸可与已排槽位撞出连携（每新解锁 3 条送重随券）`}</span>
-        <button class="combo-codex-btn" id="btn-open-codex">图鉴 ${state.discoveredCombos.length}/${SCHEDULE_COMBOS.length}</button>
+      <div class="v5-cat-bar">
+        <div class="v5-cat-pills">
+          ${catTabs.map(t => `<button class="v5-cat-pill ${drawerCat === t.id ? 'on' : ''}" data-dcat="${t.id}">${t.lb}</button>`).join('')}
+        </div>
+        <button class="combo-codex-btn ${prev.combos.length ? 'lit' : ''}" id="btn-open-codex">图鉴 ${state.discoveredCombos.length}/${SCHEDULE_COMBOS.length}</button>
       </div>
 
-      ${inspectorHtml}
-
       <div class="v5-cards">
-        <div class="sticker-grid ${actions.length > 8 ? 'compact' : ''}">
+        <div class="sticker-grid ${visibleActions.length > 8 ? 'compact' : ''}">
           ${(() => {
             const partnerIds = draft.length < budget.available
               ? getComboPartnerIds(draft, actions.filter(x => !x.disabled).map(x => x.id), state)
               : new Set();
-            return actions.map(a => {
+            return visibleActions.map(a => {
               const m = getActionMeta(a, state);
               const cnt = slotCounts[a.id] || 0;
-              const rec = recMap[a.id];
+              const isRec = Boolean(recMap[a.id]);
               const isPartner = partnerIds.has(a.id);
-              const leftBadge = a.seasonal ? (a.badge || '限定') : (isPartner ? '可连携' : rec);
+              const topLeftBadge = a.seasonal ? (a.badge || '限定') : (isPartner ? '连携' : '');
+              const showRightRec = isRec && !cnt;
               const isFocus = inspected && inspected.id === a.id;
               const pulseFirst = isFirstTurn && draft.length === 0 && a.id === recFirstId;
               return `
-                <button class="stk ${a.seasonal ? 'seasonal' : ''} ${isPartner ? 'combo-partner' : ''} ${isFocus ? 'focus' : ''} ${cnt ? 'slotted' : ''} ${a.disabled ? 'is-disabled' : ''} ${pulseFirst ? 'guide-pulse' : ''}" data-sticker="${a.id}">
-                  ${leftBadge ? `<span class="stk-rec ${a.seasonal ? 'sea-badge' : isPartner ? 'partner-badge' : ''}">${leftBadge}</span>` : ''}
-                  ${a.costCash > 0 ? `<span class="stk-price ${leftBadge ? 'under-rec' : ''}">¥${fmtMoney(a.costCash)}</span>` : ''}
+                <button class="stk ${a.seasonal ? 'seasonal' : ''} ${isRec ? 'is-rec' : ''} ${isPartner ? 'combo-partner' : ''} ${isFocus ? 'focus' : ''} ${cnt ? 'slotted' : ''} ${a.disabled ? 'is-disabled' : ''} ${pulseFirst ? 'guide-pulse' : ''}" data-sticker="${a.id}">
+                  ${topLeftBadge ? `<span class="stk-rec ${a.seasonal ? 'sea-badge' : 'partner-badge'}">${topLeftBadge}</span>` : ''}
+                  ${showRightRec ? `<span class="stk-rec-rt">推荐</span>` : ''}
+                  ${a.costCash > 0 ? `<span class="stk-price">¥${fmtMoney(a.costCash)}</span>` : ''}
                   ${cnt > 0 ? `<span class="stk-cnt">×${cnt}</span>` : ''}
-                  <div class="stk-well" style="--well-bg:${m.wellBg};">${pxIcon(m.ico, 23)}</div>
+                  <div class="stk-well" style="--well-bg:${m.wellBg};">${pxIcon(m.ico, 21)}</div>
                   <span class="stk-nm">${m.short}</span>
                 </button>
               `;
             }).join('');
           })()}
         </div>
-        <div class="v5-hint-line">${isFirstTurn ? '单点贴纸即排入并预览主角动作 · 点槽位 ✕ 可撤 · 右上 ∨ 收起' : '亮金边「可连携」贴纸入槽即可碰撞合成 · 右上 ∨ 收起'}</div>
       </div>
 
       <div class="v5-footer">
         ${prev.fatigueWarn ? `<div class="v5-warn">注意：本季安排偏满（疲劳将达 ${prev.endFatigue}/${prev.fatigueLimit}），会额外扣 1 点健康</div>` : ''}
-        <button class="btn-go ${isFirstTurn && isFull ? 'ready-pulse' : ''}" id="v5-exec">开始这一季 → ${goPillHtml}</button>
+        <button class="btn-go ${isFirstTurn && isFull ? 'ready-pulse' : ''}" id="v5-exec">开始这一季 ${goPillHtml}</button>
       </div>
     </div>
   `;
@@ -1270,12 +1345,14 @@ function bindMainEvents(actions, budget, cornerSticker) {
 
   // 主页 V5 撕纸手账一镜到底物理展开 / 折回交互（340ms 丝滑过渡）
   const smoothCloseDrawer = () => {
+    const wrap = appEl.querySelector('#v5-home-wrap');
     const sheet = appEl.querySelector('#v5-sheet');
     const stg = appEl.querySelector('#scene-stage');
     const mask = appEl.querySelector('#drawer-mask');
     moreMenuOpen = false;
     clearHeroStageAnimDom();
     if (sheet && sheet.classList.contains('open')) {
+      wrap?.classList.remove('drawer-open');
       sheet.classList.remove('open');
       stg?.classList.remove('drawer-open');
       mask?.classList.remove('open');
@@ -1297,6 +1374,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         drawerOpen = true;
+        appEl.querySelector('#v5-home-wrap')?.classList.add('drawer-open');
         appEl.querySelector('#v5-sheet')?.classList.add('open');
         appEl.querySelector('#scene-stage')?.classList.add('drawer-open');
         appEl.querySelector('#drawer-mask')?.classList.add('open');
@@ -1305,6 +1383,13 @@ function bindMainEvents(actions, budget, cornerSticker) {
   });
   bind('#drawer-mask', smoothCloseDrawer);
   bind('#v5-close', smoothCloseDrawer);
+  appEl.querySelectorAll('[data-dcat]').forEach(btn => {
+    btn.onclick = () => {
+      drawerCat = btn.dataset.dcat || 'all';
+      moreMenuOpen = false;
+      render();
+    };
+  });
   bind('#btn-compass-home', openCompassSlipModal);
   bind('#btn-compass-drawer', openCompassSlipModal);
   bind('#t-open-compass', openCompassSlipModal);
@@ -1352,6 +1437,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
   });
   bind('#btn-wishbook', () => openWishbookModal(state, getNetWorth, mountOverlay, clearOverlay, () => { saveAutoProgress(); render(); }));
   bind('#hud-era', openEraNewspaper);
+  bind('#hud-era-mini', openEraNewspaper);
   bind('#btn-news', openEraNewspaper);
   bind('#btn-hex-deck', () => {
     const pending = getPendingHextechAge(state);
@@ -1363,11 +1449,13 @@ function bindMainEvents(actions, budget, cornerSticker) {
   if (theaterState) {
     bind('#scene-stage', () => stopTheater(true));
   }
-  bind('#hud-cash', () => {
+  const goAssetsFromHud = () => {
     if (state.totalTurns >= 1 || state.age > 6) {
       activeTab = 'assets'; drawerOpen = false; moreMenuOpen = false; render();
     }
-  });
+  };
+  bind('#hud-cash', goAssetsFromHud);
+  bind('#hud-cash-mini', goAssetsFromHud);
   bind('#hero-tap', () => {
     if (theaterState) { stopTheater(true); return; }
     heroHop = true;
@@ -2506,8 +2594,11 @@ function launchArcadeGame(gameId, opts = {}) {
   const isPractice = !isClimax && !isQualifier && state.arcadePlayedThisTurn;
   const boost = hasHex(state, 'hx_arcade_pro') ? 1.4 : 1.0;
 
-  mountOverlay(`<div class="sheet-modal"><div class="sheet-box" id="mg-box"></div></div>`, host => {
-    const box = host.querySelector('#mg-box');
+  const overlayShell = gameId === 'rhythm_master'
+    ? `<div class="sd-full-overlay rm3-full-overlay" id="mg-box"></div>`
+    : `<div class="sheet-modal"><div class="sheet-box" id="mg-box"></div></div>`;
+  mountOverlay(overlayShell, host => {
+    const box = host.id === 'mg-box' ? host : (host.querySelector('#mg-box') || host);
     const gameFnMap = {
       ring_toss: openRingTossGame,
       nostalgia_link: openNostalgiaLinkGame,

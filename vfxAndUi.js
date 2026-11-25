@@ -5,16 +5,16 @@
 // 4. 「亲友梦」自然生长四阶追梦手账卡
 // 严格遵循纯中文零表情符号规范。
 
-import { CITIES } from './data.js?v=s60';
+import { CITIES } from './data.js?v=s70';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_BOND_ORDER, HEX_CARD_MAP,
   hasHex, getHexInstance, getHexBondCounts, getBondTier,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s60';
-import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s60';
-import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s60';
-import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s60';
-import { pxIcon } from './icons.js?v=s60';
+} from './hextech.js?v=s70';
+import { TUCK_CARDS_12 } from './lifeFeatures.js?v=s70';
+import { DREAM_CATALOG, DREAM_IDS, ensureDreamState } from './dreams.js?v=s70';
+import { estimateAnnualCashflow, getNetWorth, getCurrentEra } from './engine.js?v=s70';
+import { pxIcon } from './icons.js?v=s70';
 
 // 移动端触感短震动（兼容微信小程序 wx.vibrateShort 与移动端浏览器）
 export function triggerHaptic(type = 'medium') {

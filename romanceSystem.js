@@ -71,10 +71,10 @@ function floodSquarePortrait(img, colIdx) {
 export async function ensureRomancePortraits() {
   if (ROMANCE_PORTRAITS.loaded) return ROMANCE_PORTRAITS;
   const [hg, hb, aw, am] = await Promise.all([
-    loadImg('./assets/sheets/hs_girls_sheet.jpg?v=s60'),
-    loadImg('./assets/sheets/hs_boys_sheet.jpg?v=s60'),
-    loadImg('./assets/sheets/adult_women_sheet.jpg?v=s60'),
-    loadImg('./assets/sheets/adult_men_sheet.jpg?v=s60')
+    loadImg('./assets/sheets/hs_girls_sheet.jpg?v=s70'),
+    loadImg('./assets/sheets/hs_boys_sheet.jpg?v=s70'),
+    loadImg('./assets/sheets/adult_women_sheet.jpg?v=s70'),
+    loadImg('./assets/sheets/adult_men_sheet.jpg?v=s70')
   ]);
   if (hg) { ROMANCE_PORTRAITS.hs_g1 = floodSquarePortrait(hg, 0); ROMANCE_PORTRAITS.hs_g2 = floodSquarePortrait(hg, 1); ROMANCE_PORTRAITS.hs_g3 = floodSquarePortrait(hg, 2); }
   if (hb) { ROMANCE_PORTRAITS.hs_b1 = floodSquarePortrait(hb, 0); ROMANCE_PORTRAITS.hs_b2 = floodSquarePortrait(hb, 1); ROMANCE_PORTRAITS.hs_b3 = floodSquarePortrait(hb, 2); }

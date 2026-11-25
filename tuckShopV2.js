@@ -1,10 +1,10 @@
 // 《这辈子 2.0》Sprint 4 —— 千禧校门口小卖部 V2（三层实景木货架 + 手撕干脆面三步真实交互 + 课间同桌拍水浒卡对决）
 // 严格遵循纯中文零表情符号规范。
 
-import { getBondTier, hasHex } from './hextech.js?v=s60';
-import { TUCK_CARDS_12, TUCK_GOODS, buyTuckGood, buyTuckGift } from './lifeFeatures.js?v=s60';
-import { triggerHaptic } from './vfxAndUi.js?v=s60';
-import { pxIcon } from './icons.js?v=s60';
+import { getBondTier, hasHex } from './hextech.js?v=s70';
+import { TUCK_CARDS_12, TUCK_GOODS, buyTuckGood, buyTuckGift } from './lifeFeatures.js?v=s70';
+import { triggerHaptic } from './vfxAndUi.js?v=s70';
+import { pxIcon } from './icons.js?v=s70';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));

@@ -1,7 +1,7 @@
 // 《这辈子 2.0》Sprint 2 生活陪伴与消费模块
 // 包含：跨阶段养宠物系统 + 舞台闪光小彩蛋 + 童年校门口小卖部 + 成年周末实景看房手账
-import { CITIES } from './data.js?v=s60';
-import { hasHex, getHexInstance, getBondTier } from './hextech.js?v=s60';
+import { CITIES } from './data.js?v=s70';
+import { hasHex, getHexInstance, getBondTier } from './hextech.js?v=s70';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));

@@ -1,5 +1,5 @@
 // 《这辈子 2.0》经典 P0 策略小游戏「黄金铁三角」（每款支持一键保底结算，严格零系统表情符号）
-import { pxIcon } from './icons.js?v=s60';
+import { pxIcon } from './icons.js?v=s70';
 
 // 1. 童年 P0：课间望风·翻卡博弈（Push-Your-Luck）
 export function openFlipCardGame(container, state, onFinish) {

@@ -2,7 +2,7 @@
 // 离散三角区间算分引擎、二分反向达标路标与子女代际考学复用系统
 // 严格遵循纯中文零表情符号规范。
 
-import { getBondTier, hasHex } from './hextech.js?v=s60';
+import { getBondTier, hasHex } from './hextech.js?v=s70';
 
 export const SUBJECT_META = {
   chn:  { id: 'chn',  label: '语文', fullName: '语文·古诗文与阅读写作', short: '语文阅读', axis: 'knowledge', unlockAge: 6, ico: 'study' },

@@ -2,8 +2,9 @@
 // 全部采用原生 Canvas / 轻像素手绘矢量渲染，0 外部图片体积，支持移动端单指按住/划屏/连点与一键保底结算。
 // 严格遵循纯中文零系统表情符号规范。
 
-import { pxIcon } from './icons.js?v=s60';
-import { triggerHaptic } from './vfxAndUi.js?v=s60';
+import { pxIcon } from './icons.js?v=s70';
+import { triggerHaptic } from './vfxAndUi.js?v=s70';
+import { loadBackSprites } from './spriteLoader.js?v=s70';
 
 export function rollStageArcadeMoment(state, draftIds = []) {
   if (!Array.isArray(state.seenArcadeMoments)) state.seenArcadeMoments = [];
@@ -774,6 +775,8 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
   let alive = true;
   let rafId = 0;
   let touchStartX = null;
+  let backPack = null;
+  loadBackSprites(state.gender || 'male').then(pk => { backPack = pk; }).catch(() => {});
 
   container.innerHTML = `
     <div class="mg-box arc-box">
@@ -1000,25 +1003,27 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       ctx.restore();
     }
 
-    // 绘制主角背影与腾空阴影
+    // 绘制全局统一形象背面实时奔跑/跨栏腾空动作与脚下阴影
     const px = laneX(lane, playerY);
     const lift = Math.sin((jumpT / 0.56) * Math.PI) * 34;
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath();
-    ctx.ellipse(px, playerY + 4, Math.max(8, 16 - lift * 0.2), 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, playerY + 4, Math.max(8, 18 - lift * 0.2), 6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.save();
-    ctx.translate(px, playerY - lift);
-    drawRoundedRect(ctx, -13, -30, 26, 28, 7);
-    ctx.fillStyle = '#f59e0b';
-    ctx.fill();
-    ctx.strokeStyle = '#4a3728';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = '#4a3728';
-    ctx.beginPath(); ctx.arc(0, -36, 9, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+    if (backPack) {
+      const spCv = jumpT > 0.08
+        ? backPack.canvases.ljHang
+        : (timeLeft <= 4.0 ? backPack.canvases.sprint : backPack.runCycle[Math.floor(now / 115) % 4]);
+      if (spCv) {
+        const dh = 76;
+        const dw = Math.round(spCv.width * (dh / spCv.height));
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(spCv, Math.round(px - dw / 2), Math.round(playerY + 4 - lift - dh), dw, dh);
+        ctx.restore();
+      }
+    }
 
     pops = pops.filter(p => p.life > 0);
     for (const p of pops) {

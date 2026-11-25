@@ -1,6 +1,6 @@
 // 《这辈子 2.0》Sprint 6 —— 顶部双属性阶段进度条 + 大白话「人生心愿册」系统
 // 严格遵循零系统 Emoji 规范；界面标签写「爱情姻缘」，不写“不强制”字样。
-import { pxIcon } from './icons.js?v=s60';
+import { pxIcon } from './icons.js?v=s70';
 
 export function getHudDualProgressBars(state) {
   const age = state.age || 6;

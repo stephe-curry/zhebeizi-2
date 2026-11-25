@@ -2,31 +2,31 @@
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS,
   ERA_TIMELINE, SUB_STAGES, PROMO_REQ, LEVEL_MULT, APPROVED_SYSTEM_ANCHORS
-} from './data.js?v=s60';
+} from './data.js?v=s70';
 import {
   HEX_NODES, HEX_CARD_MAP, hasHex, getHexInstance, getBondTier
-} from './hextech.js?v=s60';
+} from './hextech.js?v=s70';
 import {
   SEASONAL_MAP, detectCombos, rollSeasonalOfferIds
-} from './combos.js?v=s60';
+} from './combos.js?v=s70';
 import {
   getMilestoneEventForTurn, rollMidTurnRandomEvent
-} from './events.js?v=s60';
+} from './events.js?v=s70';
 import {
   advancePetYear
-} from './lifeFeatures.js?v=s60';
-import { ensureRomanceState, checkPartnerBreakupOnTurnEnd } from './romanceSystem.js?v=s60';
-import { ensureWishbookState } from './wishbook.js?v=s60';
+} from './lifeFeatures.js?v=s70';
+import { ensureRomanceState, checkPartnerBreakupOnTurnEnd } from './romanceSystem.js?v=s70';
+import { ensureWishbookState } from './wishbook.js?v=s70';
 import {
   ensureDreamState, getDreamScheduleActions, executeDreamAction,
   rollDreamLifecycleEvent, applyDreamAnnualPassives, syncLegacyDreamFields
-} from './dreams.js?v=s60';
-import { rollStageArcadeMoment } from './arcadeGames.js?v=s60';
+} from './dreams.js?v=s70';
+import { rollStageArcadeMoment } from './arcadeGames.js?v=s70';
 import {
   SUBJECT_META, ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
   pickRecommendedSubject, applySubjectStudyStep, simulateSubjectStudyStep,
   applyDirectAcademicAction, makeStudentSnapshotFromState, advanceChildSubTurnCursor, applyParentTutorToChild
-} from './examSystem.js?v=s60';
+} from './examSystem.js?v=s70';
 
 export function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
