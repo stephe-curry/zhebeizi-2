@@ -389,7 +389,17 @@ export function getStudentExamPreview(state, draftIds = []) {
   // 将当前排程草稿里的学习/运动/休息逐格预演到考场快照
   const curSubj = state.selectedSubject || pickRecommendedSubject(state);
   for (const id of draftIds) {
-    if (id === 'study_self') {
+    if (id === 'study_lit') {
+      const r = simulateSubjectStudyStep(simSnap, 'chn', { solo: true });
+      simSnap.lit = r.lit; simSnap.num = r.num; simSnap.subjects.chn = r.newS;
+      simSnap.mood = clampVal(simSnap.mood - 1, 0, 100);
+      simSnap.fatigue = clampVal(simSnap.fatigue + 1, 0, 100);
+    } else if (id === 'study_num') {
+      const r = simulateSubjectStudyStep(simSnap, 'math', { solo: true });
+      simSnap.lit = r.lit; simSnap.num = r.num; simSnap.subjects.math = r.newS;
+      simSnap.mood = clampVal(simSnap.mood - 1, 0, 100);
+      simSnap.fatigue = clampVal(simSnap.fatigue + 1, 0, 100);
+    } else if (id === 'study_self') {
       const r = simulateSubjectStudyStep(simSnap, curSubj, { solo: true });
       simSnap.lit = r.lit; simSnap.num = r.num; simSnap.subjects[curSubj] = r.newS;
       simSnap.mood = clampVal(simSnap.mood - 1, 0, 100);

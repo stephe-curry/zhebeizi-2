@@ -4,10 +4,10 @@
 export const SCHEDULE_COMBOS = [
   {
     id: 'cb_desk_study', name: '并肩刷题', stage: 'child', crestIco: 'study',
-    req: ['study_self', 'accompany_friend'],
+    reqAnyOf: [['study_lit', 'study_num', 'study_self'], ['accompany_friend']],
     pills: ['学识 +1', '同桌 +2'],
     desc: '学识额外 +1 · 同桌亲密 +2 · 心态 +2',
-    hint: '课业自习 + 和同桌玩耍',
+    hint: '文科阅读/数理解题 + 和同桌玩耍',
     bonus: { knowledge: 1, friendInt: 2, mood: 2 }
   },
   {
@@ -100,10 +100,10 @@ export const SCHEDULE_COMBOS = [
   },
   {
     id: 'cb_full_grind', name: '废寝忘食', stage: 'any', crestIco: 'lamp',
-    reqAnyDup: [['study_self', 'uni_study', 'pro_self'], 3],
+    reqAnyDup: [['study_lit', 'study_num', 'study_self', 'uni_study', 'pro_self'], 3],
     pills: ['主业 +2', '疲劳 +1'],
     desc: '单季连学 3 格：学识/专业额外 +2',
-    hint: '同季连排 3 次自习或专业学习',
+    hint: '同季连排 3 次文理学习或专业学习',
     bonus: { mainStudy: 2, fatigue: 1 }
   },
   {

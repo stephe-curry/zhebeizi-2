@@ -787,6 +787,11 @@ export function executeTurn(state, draftIds) {
         state.elderCircleProgress += ef.elderCircle;
         if (state.elderCircleProgress >= 3) state.elderCircle = true;
       }
+      if (['summer_swim', 'sea_teambuild', 'sea_fishing_trip', 'sea_sunset_tour'].includes(id)) {
+        ensureWishbookState(state);
+        const stampKey = `${id}_${state.age}`;
+        if (!state.travelStamps.includes(stampKey)) state.travelStamps.push(stampKey);
+      }
       beatText = parts.slice(0, 2).join(' · ') || `${a.name}完成`;
       summary.push(`${a.name}：${parts.join('，')}`);
       stepBeats.push({ id, name: a.name, text: beatText, kind: beatKind, isSeasonal: true });

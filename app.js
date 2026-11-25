@@ -264,12 +264,15 @@ function getRecommendedActionMap(s, actions) {
     rec.exercise = '保健康';
   }
   if (Object.keys(rec).length < 2) {
-    if (s.age < 8 && has('chores')) rec.chores = '目标';
-    else if (s.age >= 15 && s.age <= 18 && has('gaokao_sprint')) rec.gaokao_sprint = '冲刺';
-    else if (s.age >= 8 && s.age <= 18 && has('study_self')) rec.study_self = '升学';
+    if (s.age >= 15 && s.age <= 18 && has('gaokao_sprint')) rec.gaokao_sprint = '冲刺';
+    else if (s.age <= 18) {
+      const litLow = (s.stats.knowledge || 0) <= (s.stats.numLogic || 0);
+      if (litLow && has('study_lit')) rec.study_lit = '补短板';
+      else if (has('study_num')) rec.study_num = '补短板';
+    }
     else if (s.age >= 19 && s.age <= 50 && !s.house && has('pro_course')) rec.pro_course = '提薪';
     else if (s.age >= 60 && !s.elderCircle && !(s.relations.partner?.married) && has('square_dance')) rec.square_dance = '抗孤独';
-    else if (s.age >= 60 && s.worldTrips < 1 && s.cash >= 80000 && has('world_trip')) rec.world_trip = '心愿';
+    else if (s.age >= 60 && s.worldTrips < 1 && s.cash >= 50000 && has('world_trip')) rec.world_trip = '心愿';
     else if (has('accompany_parents') && s.relations.parents.intimacy < 60) rec.accompany_parents = '亲情';
   }
   return rec;
@@ -295,9 +298,9 @@ function buildSmartDraft(s, actions, budget) {
 
   const activeDreamAct = actions.find(a => a.isDreamAction && !a.disabled)?.id || null;
   const stagePriority = s.age <= 12
-    ? ['chores', 'study_self', 'accompany_friend', activeDreamAct, 'accompany_parents', 'exercise'].filter(Boolean)
+    ? ['study_lit', 'study_num', 'accompany_friend', activeDreamAct, 'accompany_parents', 'exercise'].filter(Boolean)
     : s.age <= 18
-      ? ['gaokao_sprint', 'study_self', activeDreamAct, 'accompany_friend', 'rest', 'chores'].filter(Boolean)
+      ? ['study_lit', 'study_num', 'gaokao_sprint', activeDreamAct, 'accompany_friend', 'rest'].filter(Boolean)
       : s.age < s.gradAge
         ? ['uni_intern', 'uni_study', activeDreamAct, 'uni_parttime', 'accompany_friend', 'rest'].filter(Boolean)
         : s.age <= 50

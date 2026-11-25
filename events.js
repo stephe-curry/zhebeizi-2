@@ -239,7 +239,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s1_tvheat', stage: 's1', gender: 'any', actionTags: ['rest', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s1_tvheat', stage: 's1', gender: 'any', actionTags: ['rest', 'study_lit', 'study_num', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '偷看动画片听见钥匙响',
     summary: '爸妈提前下班推门，电视机后盖还是滚烫的！',
     choices: [
@@ -266,7 +266,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s1_blackboard', stage: 's1', gender: 'any', actionTags: ['study_self', 'study_tutor'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s1_blackboard', stage: 's1', gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'study_tutor'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '被数学老师叫上黑板解几何附加题',
     summary: '全班安静下来，三角板和粉笔握在手里有点冒汗。',
     choices: [
@@ -302,7 +302,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s1_powerout', stage: 's1', gender: 'any', actionTags: ['study_self', 'rest'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s1_powerout', stage: 's1', gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'rest'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '夏夜小区突然全楼停电',
     summary: '台灯“啪”地熄灭，窗外传出整栋楼孩子们的欢呼声。',
     choices: [
@@ -322,7 +322,7 @@ export const RANDOM_EVENT_POOL = [
 
   // ---------- s2 青春校园 (13–18 岁) ----------
   {
-    id: 're_s2_note', stage: 's2', gender: 'any', actionTags: ['study_self', 'accompany_friend'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s2_note', stage: 's2', gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'accompany_friend'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '课桌下悄悄传来的折纸条',
     summary: '自习课上，前排回手塞过来一张折成心形的草稿纸。',
     choices: [
@@ -340,7 +340,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s2_contest', stage: 's2', gender: 'any', actionTags: ['study_self', 'study_tutor', 'gaokao_sprint'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s2_contest', stage: 's2', gender: 'any', actionTags: ['study_lit', 'study_num', 'study_self', 'study_tutor', 'gaokao_sprint'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '市级学科竞赛临时补录名额',
     summary: '老师问你要不要周末去考场见见世面。',
     choices: [
@@ -376,7 +376,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s2_diary_f', stage: 's2', gender: 'female', actionTags: ['rest', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s2_diary_f', stage: 's2', gender: 'female', actionTags: ['rest', 'study_lit', 'study_num', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '带锁日记本写满青春秘密',
     summary: '【女主线切片】台灯下写完一整页关于未来城市的想象与心事。',
     choices: [
@@ -385,7 +385,7 @@ export const RANDOM_EVENT_POOL = [
     ]
   },
   {
-    id: 're_s2_noodle', stage: 's2', gender: 'any', actionTags: ['gaokao_sprint', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
+    id: 're_s2_noodle', stage: 's2', gender: 'any', actionTags: ['gaokao_sprint', 'study_lit', 'study_num', 'study_self'], review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
     title: '晚自习回家桌上那碗热阳春面',
     summary: '十点半推开家门，厨房还留着一盏昏黄小灯和荷包蛋。',
     choices: [
