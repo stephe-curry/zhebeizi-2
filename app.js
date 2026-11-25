@@ -2,52 +2,58 @@
 // 核心架构：V4 整屏拍立得 ⇄ V5 撕纸贴纸盘(Combo+季节限定) ⇄ 1.8s过场剧场 ⇄ 命运海克斯 2.0 ⇄ V3 定格
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS, PROMO_REQ
-} from './data.js?v=s51';
+} from './data.js?v=s60';
 import {
   clamp, monthlyPmt, getSubStage, getSubStageIndex, getDateStamp, getMacroParams,
   createInitialState, ensureSprint1State, getEffectiveFatigueLimit, getPendingHextechAge,
   getCurrentEra, getNextYearHint, getCurrentMonthlySalary,
   getTurnSlotBudget, getAvailableActions, previewDraft, executeTurn, getNetWorth, evaluateEnding
-} from './engine.js?v=s51';
+} from './engine.js?v=s60';
 import {
   HEX_NODES, HEX_NODE_META, HEX_BONDS, HEX_CARD_MAP, hasHex, getHexInstance,
   getHexBondCounts, getBondTier, getNewBondTriggersForCard,
   rollHextechOffer, pickSingleHextechCard, applyHextechPick
-} from './hextech.js?v=s51';
+} from './hextech.js?v=s60';
 import {
   SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
-} from './combos.js?v=s51';
+} from './combos.js?v=s60';
 import {
   applyEventChoiceEffects
-} from './events.js?v=s51';
+} from './events.js?v=s60';
 import {
   getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
   TUCK_CARDS_12, TUCK_GOODS, drawSnackCard, buyTuckGood, buyTuckGift,
   getOrRollHouseListings
-} from './lifeFeatures.js?v=s51';
+} from './lifeFeatures.js?v=s60';
 import {
   applyGracefulPivot, DREAM_CATALOG, rollDreamLifecycleEvent,
   settleDreamQualifier, settleDreamClimax, addKeepsakeWithStory
-} from './dreams.js?v=s51';
+} from './dreams.js?v=s60';
 import {
   triggerHaptic, playComboCollisionVfx, openHextechV4Modal,
   renderNewAssetsTab, bindNewAssetsInteractions, renderDreamJournalSection
-} from './vfxAndUi.js?v=s51';
-import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s51';
+} from './vfxAndUi.js?v=s60';
+import { openFlipCardGame, openHomePuzzleGame, openGomokuGame } from './minigames.js?v=s60';
 import {
   rollStageArcadeMoment, openRingTossGame, openNostalgiaLinkGame, openBellDashGame,
   openWorkSliceGame, openRedPacketRainGame, openLakeFishingGame
-} from './arcadeGames.js?v=s51';
-import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s51';
-import { openTuckShopV2, openCardSlapModal } from './tuckShopV2.js?v=s51';
-import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s51';
+} from './arcadeGames.js?v=s60';
+import { buildEventVignetteHtml, formatNarrativeChoiceV3 } from './eventViewerV3.js?v=s60';
+import { openTuckShopV2, openCardSlapModal } from './tuckShopV2.js?v=s60';
+import { openRhythmMasterGame, openSpotBugGame, openSpotDiffGame } from './boutiqueGames.js?v=s60';
 import {
   SUBJECT_META, getSelectableSubjects, getStageTextbookCap, getLifeStageCompass,
   getStudentExamPreview, rollOrGetExamResult, CHILD_POLICIES,
   ensureChildExamProfile, getChildExamPreviewSummary
-} from './examSystem.js?v=s51';
-import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s51';
-import { pxIcon, chevDownIcon, lineNavIcon } from './icons.js?v=s51';
+} from './examSystem.js?v=s60';
+import { loadCharacterSprites, getBubbleUrl } from './spriteLoader.js?v=s60';
+import { pxIcon, chevDownIcon, lineNavIcon } from './icons.js?v=s60';
+import { getHudDualProgressBars, computeWishbookData, openWishbookModal } from './wishbook.js?v=s60';
+import { openSportsDayTournament } from './sportsDay.js?v=s60';
+import {
+  ensureRomanceState, getCandidatePoolForAge, openRomanceHubModal,
+  playerBreakupPartner
+} from './romanceSystem.js?v=s60';
 
 const appEl = document.getElementById('app');
 
@@ -217,9 +223,11 @@ function getActionMeta(a, s) {
   const kf = s.tutorKidFocus || 'balanced';
   const kfShort = kf === 'lit' ? '辅导文科' : kf === 'num' ? '辅导理科' : '辅导功课';
   const map = {
+    study_lit:         { ico: 'study',    short: '文科阅读' },
+    study_num:         { ico: 'bulb',     short: '数理解题' },
     study_self:        { ico: selSubj.ico || 'study', short: selSubj.short },
-    study_tutor:       { ico: 'tutor',    short: `补习${selSubj.label}` },
-    gaokao_sprint:     { ico: 'sprint',   short: `刷卷${selSubj.label}` },
+    study_tutor:       { ico: 'tutor',    short: '课外补习' },
+    gaokao_sprint:     { ico: 'sprint',   short: '考前刷卷' },
     uni_study:         { ico: 'study',    short: '泡馆修学' },
     uni_intern:        { ico: 'work',     short: '实习项目' },
     uni_parttime:      { ico: 'tutor',    short: '家教兼职' },
@@ -715,33 +723,55 @@ function render() {
     const theaterBeat = theaterState ? theaterState.beats[theaterState.idx] : null;
     const compass = getLifeStageCompass(state, draft, PROMO_REQ);
 
+    const dualBars = getHudDualProgressBars(state);
+    const wishSnap = computeWishbookData(state, getNetWorth);
+
     bodyHtml = `
       <div class="v5-home-wrapper">
-        <!-- L1 顶部 4 枚独立悬浮圆润奶油胶囊（#4a3728 棕线像素图标 + 清晰数值，零系统表情符号） -->
-        <div class="v5-hud-float">
-          <button class="v5-pill age-pill" id="hud-era" title="查看时代简报">
-            <span class="vp-val">${state.age}岁</span>
-          </button>
-          <button class="v5-pill cash-pill" id="hud-cash" title="进入家与账">
-            ${pxIcon('coin', 16)}
-            <span class="vp-val">¥${fmtMoney(state.cash)}</span>
-            ${livePrev && livePrev.cash !== 0 ? `<span class="pill-delta ${livePrev.cash>0?'pos':'neg'}">${livePrev.cash>0?'+':'-'}¥${fmtMoney(Math.abs(livePrev.cash))}</span>` : ''}
-          </button>
-          <div class="v5-pill stat-pill" id="hud-health">
-            ${pxIcon('heart', 15)}
-            <div class="vp-col">
-              <span class="vp-val" style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span>
-              <div class="vp-bar"><i style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></i></div>
+        <!-- L1 顶部双层融合栏：第一层生存四维 + 第二层当期核心双属性进度条（无独立中考进度条！） -->
+        <div class="v5-hud-dual">
+          <div class="v5-hud-row1">
+            <button class="v5-pill age-pill" id="hud-era" title="查看时代简报">
+              <span class="vp-val">${state.age}岁</span>
+            </button>
+            <button class="v5-pill cash-pill" id="hud-cash" title="进入家与账">
+              ${pxIcon('coin', 15)}
+              <span class="vp-val">¥${fmtMoney(state.cash)}</span>
+              ${livePrev && livePrev.cash !== 0 ? `<span class="pill-delta ${livePrev.cash>0?'pos':'neg'}">${livePrev.cash>0?'+':'-'}¥${fmtMoney(Math.abs(livePrev.cash))}</span>` : ''}
+            </button>
+            <div class="v5-pill stat-pill" id="hud-health">
+              ${pxIcon('heart', 14)}
+              <div class="vp-col">
+                <span class="vp-val" style="color:${state.stats.health<30?'var(--red)':'#3a2b20'}">${state.stats.health}</span>
+                <div class="vp-bar"><i style="width:${state.stats.health}%;background:${state.stats.health<30?'var(--red)':'var(--green)'}"></i></div>
+              </div>
+              ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健') : ''}
             </div>
-            ${livePrev && livePrev.health !== 0 ? fmtDelta(livePrev.health, '健') : ''}
+            <div class="v5-pill stat-pill" id="hud-mood">
+              ${pxIcon('smile', 14)}
+              <div class="vp-col">
+                <span class="vp-val" style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span>
+                <div class="vp-bar"><i style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></i></div>
+              </div>
+              ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心') : ''}
+            </div>
           </div>
-          <div class="v5-pill stat-pill" id="hud-mood">
-            ${pxIcon('smile', 15)}
-            <div class="vp-col">
-              <span class="vp-val" style="color:${state.stats.mood<35?'var(--red)':'#3a2b20'}">${state.stats.mood}</span>
-              <div class="vp-bar"><i style="width:${state.stats.mood}%;background:${state.stats.mood<35?'var(--red)':'var(--accent)'}"></i></div>
-            </div>
-            ${livePrev && livePrev.mood !== 0 ? fmtDelta(livePrev.mood, '心') : ''}
+
+          <div class="v5-hud-row2">
+            ${dualBars.map(b => {
+              const pct = Math.min(100, Math.round((b.cur / Math.max(1, b.max)) * 100));
+              return `
+                <div class="v5-axis-box">
+                  <div class="v5-ab-top">
+                    <span class="v5-ab-nm">${pxIcon(b.ico, 13)} ${b.label}</span>
+                    <b class="v5-ab-num" style="color:${b.txt};">${b.cur} / ${b.max}</b>
+                  </div>
+                  <div class="v5-ab-track" style="background:${b.bg};">
+                    <i style="width:${pct}%;background:${b.fill};"></i>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
 
@@ -758,7 +788,10 @@ function render() {
               <span class="hex-cnt">${hexCount}/7${!pendingHexAge && nextHexAge ? `·${nextHexAge}岁` : ''}</span>
               ${pendingHexAge ? '<span class="hex-dot"></span>' : ''}
             </button>
-            <button class="news-btn v5-frosted" id="btn-news">时代简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
+            <div class="v5-top-right-pills">
+              <button class="wish-btn v5-frosted" id="btn-wishbook">${pxIcon('pin', 12)} 心愿册·${wishSnap.totalStamped} ›</button>
+              <button class="news-btn v5-frosted inline" id="btn-news">简报${state.age >= 18 ? '<span class="news-dot"></span>' : ''}</button>
+            </div>
             ${(state.statusBuffs || []).length ? `
               <div class="buff-strip v5-buff-pos">
                 ${state.statusBuffs.map(bf => `<span class="buff-pill ${bf.type === 'neg' ? 'neg' : ''}">${bf.name} ${bf.turns}季</span>`).join('')}
@@ -813,7 +846,7 @@ function render() {
           <div class="v5-cross-tape green"></div>
           <div class="v5-cross-tape pink"></div>
 
-          <!-- 静息折叠态内容 -->
+          <!-- 静息折叠态内容（彻底清空冗余目标框，还原纯粹暖系手账呼吸感） -->
           <div class="v5-rest-view">
             <div class="v5-season-row">
               <div class="season-caption">${getSeasonTitle(state)}</div>
@@ -821,16 +854,6 @@ function render() {
                 ${Array.from({ length: mp.subTurns }).map((_, idx) => `<span class="s-dot ${idx + 1 < state.subTurn ? 'past' : idx + 1 === state.subTurn ? 'now' : ''}"></span>`).join('')}
               </div>
             </div>
-
-            <!-- 下一关里程碑路标条（点击即展开全阶段五项核心能力与考分预测便签） -->
-            <button class="v5-compass-card" id="btn-compass-home" title="点击查看当前五项指标与下一关要求">
-              <div class="vc-top">
-                <span class="vc-kicker">${compass.kicker}</span>
-                <span class="vc-badge">${compass.badge} ›</span>
-              </div>
-              <div class="vc-main">${compass.main}</div>
-              <div class="vc-track"><i style="width:${compass.pct}%"></i></div>
-            </button>
 
             ${(budget.commuteLocked || budget.babyLock) ? `<div class="season-sub">${budget.commuteLocked ? '远郊通勤占1格' : ''}${budget.babyLock ? ' · 育儿照护占1格' : ''}</div>` : ''}
             <button class="cta-main v5-cta" id="btn-open-drawer" ${theaterState ? 'disabled' : ''}>${ctaText}</button>
@@ -951,26 +974,7 @@ function renderV5Drawer(actions, budget, compass) {
       ? `<span class="go-pill">差 ${remain} 格</span>`
       : `<span class="go-pill">已排满</span>`;
 
-  const isHighSchool = state.age > 15 || (state.age === 15 && state.subTurn >= 3);
-  const subjSelectorHtml = state.age <= 18 ? (() => {
-    const availSubjs = getSelectableSubjects(state);
-    const capD = getStageTextbookCap(state.age, state.subTurn);
-    return `
-      <div class="v5-subj-bar">
-        <span class="vsb-lbl">选科:</span>
-        ${availSubjs.map(sk => {
-          const sm = SUBJECT_META[sk];
-          const val = Math.round(state.subjects?.[sk] || 20);
-          const isSel = (state.selectedSubject || 'chn') === sk;
-          const isCap = val >= capD;
-          return `<button class="vsb-pill ${isSel ? 'active' : ''} ${isCap ? 'capped' : ''}" data-subj="${sk}">${sm.label}<i>${val}${isCap ? '满' : ''}</i></button>`;
-        }).join('')}
-        ${isHighSchool && state.age <= 18 ? `
-          <button class="vsb-track-btn" id="v5-toggle-track" title="切换高中文理卷">${state.examTrack === 'art' ? '文科卷' : '理科卷'} ⇄</button>
-        ` : ''}
-      </div>
-    `;
-  })() : (state.child && (state.age - state.child.bornAge) <= 18 ? `
+  const subjSelectorHtml = (state.age > 18 && state.child && (state.age - state.child.bornAge) <= 18) ? `
     <div class="v5-subj-bar">
       <span class="vsb-lbl">辅导娃:</span>
       ${[
@@ -979,7 +983,7 @@ function renderV5Drawer(actions, budget, compass) {
         { id: 'num', lb: `补理科(数理${state.stats.numLogic})` }
       ].map(it => `<button class="vsb-pill ${(state.tutorKidFocus || 'balanced') === it.id ? 'active' : ''}" data-kid-focus="${it.id}">${it.lb}</button>`).join('')}
     </div>
-  ` : '');
+  ` : '';
 
   return `
     <div class="v5-drawer-inner">
@@ -1008,12 +1012,6 @@ function renderV5Drawer(actions, budget, compass) {
         }).join('')}
         ${Array.from({ length: remain }).map(() => `<span class="stamp-slot">＋ 空槽</span>`).join('')}
       </div>
-
-      <button class="goal-note clickable-compass" id="btn-compass-drawer" title="点击查看全阶段指标详情与各科区间">
-        ${pxIcon('pin', 13)}
-        <span class="gn-text">${cp.subHint ? `${cp.main} · ${cp.subHint}` : `${cp.kicker.replace('下一关 · ', '')}：${cp.main}`}</span>
-        <span class="gn-num">${cp.badge} ›</span>
-      </button>
 
       ${subjSelectorHtml}
 
@@ -1207,8 +1205,11 @@ function renderSocialTab(budget) {
           `).join('')}
         </div>
         <div class="pill-actions">
-          ${state.age >= 19 && !state.relations.partner ? `<button class="pill-btn primary" id="t-love">${pxIcon('heart', 14)} 结识伴侣</button>` : ''}
-          ${state.relations.partner && !state.relations.partner.married ? `<button class="pill-btn primary" id="t-marry">${pxIcon('heart', 14)} 谈婚论嫁</button>` : ''}
+          ${state.age >= 16 && state.age <= 18 ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} 高中同学录 · 聊天</button>` : ''}
+          ${state.age >= 19 && !state.relations.partner ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} 相亲角与缘分</button>` : ''}
+          ${state.relations.partner && state.age >= 19 ? `<button class="pill-btn soft" id="t-romance-hub">${pxIcon('heart', 14)} 找${state.relations.partner.name}聊天</button>` : ''}
+          ${state.relations.partner && !state.relations.partner.married && state.age >= 22 ? `<button class="pill-btn primary" id="t-marry">${pxIcon('heart', 14)} 谈婚论嫁</button>` : ''}
+          ${state.relations.partner && !state.relations.partner.married ? `<button class="pill-btn soft" id="t-breakup" style="color:#b91c1c;">主动提分手</button>` : ''}
           ${state.relations.partner?.married && !state.child && !state.choseDink ? `<button class="pill-btn soft" id="t-kid">${pxIcon('baby', 14)} 生娃 / 丁克抉择</button>` : ''}
           ${budget.babyLock && state.relations.parents.intimacy >= 60 ? `<button class="pill-btn soft" id="t-help">${pxIcon('parents', 14)} 请父母代班(释1格)</button>` : ''}
         </div>
@@ -1344,6 +1345,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     toastMsg = '';
     document.querySelectorAll('.toast-ribbon').forEach(el => el.remove());
   });
+  bind('#btn-wishbook', () => openWishbookModal(state, getNetWorth, mountOverlay, clearOverlay, () => { saveAutoProgress(); render(); }));
   bind('#hud-era', openEraNewspaper);
   bind('#btn-news', openEraNewspaper);
   bind('#btn-hex-deck', () => {
@@ -1522,12 +1524,16 @@ function bindMainEvents(actions, budget, cornerSticker) {
     if (state.ended) { render(); return; }
 
     const needGrad = state.age === state.gradAge && state.subTurn === 1 && !state.track;
-    const afterEvents = () => {
+    const afterCoreNodes = () => {
       if (res.needGaokao) return openGaokaoV3(() => checkPendingHextech());
       if (needGrad) return openGradV3(() => checkPendingHextech());
       if (res.yearEndReport) return showYearEndV3(res.yearEndReport, () => checkPendingHextech());
       if (!checkPendingHextech()) {
-        if (res.rerollTicketsEarned > 0) {
+        const wbRes = computeWishbookData(state, getNetWorth);
+        if (wbRes.newlyStamped.length > 0) {
+          showToast(`心愿册盖章达成：【${wbRes.newlyStamped[0]}】！`);
+          render();
+        } else if (res.rerollTicketsEarned > 0) {
           showToast(`新解锁 ${state.discoveredCombos.length} 条连携图鉴，获命运重随券 +${res.rerollTicketsEarned}！`);
         } else if (res.newlyDiscoveredCombos?.length > 0) {
           showToast(`收录新连携图鉴：${res.newlyDiscoveredCombos.map(c => c.name).join(' · ')}`);
@@ -1536,6 +1542,35 @@ function bindMainEvents(actions, budget, cornerSticker) {
           render();
         }
       }
+    };
+
+    const afterBreakupCheck = () => {
+      if (res.partnerBreakupEvent) {
+        const ev = res.partnerBreakupEvent;
+        mountOverlay(`
+          <div class="modal-mask"><div class="modal-sheet wishbook-sheet">
+            <div class="wb-title" style="margin-bottom:6px;">${ev.title}</div>
+            <div style="font-size:13px;line-height:1.55;color:#4a3728;margin-bottom:14px;">${ev.body}</div>
+            <button class="btn-go" id="bk-ok" style="width:100%;">我明白了</button>
+          </div></div>
+        `, (root) => {
+          root.querySelector('#bk-ok').onclick = () => { clearOverlay(); saveAutoProgress(); render(); afterCoreNodes(); };
+        });
+        return;
+      }
+      afterCoreNodes();
+    };
+
+    const afterEvents = () => {
+      if (res.needSportsDay) {
+        openSportsDayTournament(state, mountOverlay, clearOverlay, () => {
+          saveAutoProgress();
+          render();
+          afterBreakupCheck();
+        });
+        return;
+      }
+      afterBreakupCheck();
     };
 
     const afterTheater = () => {
@@ -1563,7 +1598,14 @@ function bindMainEvents(actions, budget, cornerSticker) {
   bind('#t-lottery', handleLottery);
   bind('#t-emo', openEmoSheet);
   bind('#t-promo', handlePromo);
-  bind('#t-love', openLoveSheet);
+  bind('#t-love', () => openRomanceHubModal(state, mountOverlay, clearOverlay, (msg) => { saveAutoProgress(); render(); if (msg) showToast(msg); }));
+  bind('#t-romance-hub', () => openRomanceHubModal(state, mountOverlay, clearOverlay, (msg) => { saveAutoProgress(); render(); if (msg) showToast(msg); }));
+  bind('#t-breakup', () => {
+    const msg = playerBreakupPartner(state);
+    saveAutoProgress();
+    render();
+    if (msg) showToast(msg);
+  });
   bind('#t-marry', openMarrySheet);
   bind('#t-kid', openKidSheet);
   bind('#t-help', () => {

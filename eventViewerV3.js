@@ -1,7 +1,7 @@
 // 《这辈子 2.0》Sprint 4 —— 情境化故事阅读器 V3（去生硬数值胶囊 · 动态氛围视窗 + 角色反应框 + 心境独白 + 淡墨倾向暗章）
 // 严格遵循纯中文零表情符号规范。
 
-import { pxIcon } from './icons.js?v=s51';
+import { pxIcon } from './icons.js?v=s60';
 
 // 1. 根据事件标题与正文智能识别 8 套手绘情境光影插画层（零外部大图体积，纯 SVG + CSS 动态粒子）
 export function detectEventTheme(ev, state) {

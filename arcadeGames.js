@@ -2,8 +2,8 @@
 // 全部采用原生 Canvas / 轻像素手绘矢量渲染，0 外部图片体积，支持移动端单指按住/划屏/连点与一键保底结算。
 // 严格遵循纯中文零系统表情符号规范。
 
-import { pxIcon } from './icons.js?v=s51';
-import { triggerHaptic } from './vfxAndUi.js?v=s51';
+import { pxIcon } from './icons.js?v=s60';
+import { triggerHaptic } from './vfxAndUi.js?v=s60';
 
 export function rollStageArcadeMoment(state, draftIds = []) {
   if (!Array.isArray(state.seenArcadeMoments)) state.seenArcadeMoments = [];

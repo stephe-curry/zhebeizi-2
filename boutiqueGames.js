@@ -4,10 +4,10 @@
 // 3. 《时光画片·大家来找茬》（10 处动态细节池每局随机抽 5 处不同，上下双画布同步红圈标注）
 // 严格遵循纯中文零表情符号规范。
 
-import { pxIcon } from './icons.js?v=s51';
-import { triggerHaptic } from './vfxAndUi.js?v=s51';
-import { loadCharacterSprites } from './spriteLoader.js?v=s51';
-import { getSubStageIndex } from './engine.js?v=s51';
+import { pxIcon } from './icons.js?v=s60';
+import { triggerHaptic } from './vfxAndUi.js?v=s60';
+import { loadCharacterSprites } from './spriteLoader.js?v=s60';
+import { getSubStageIndex } from './engine.js?v=s60';
 
 function setupHiDpi(canvas, w, h) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);

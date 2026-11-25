@@ -2,29 +2,31 @@
 import {
   ORIGINS, CITIES, TRACKS, UNIVERSITIES, DREAMS, SPOUSE_BACKGROUNDS,
   ERA_TIMELINE, SUB_STAGES, PROMO_REQ, LEVEL_MULT, APPROVED_SYSTEM_ANCHORS
-} from './data.js?v=s51';
+} from './data.js?v=s60';
 import {
   HEX_NODES, HEX_CARD_MAP, hasHex, getHexInstance, getBondTier
-} from './hextech.js?v=s51';
+} from './hextech.js?v=s60';
 import {
   SEASONAL_MAP, detectCombos, rollSeasonalOfferIds
-} from './combos.js?v=s51';
+} from './combos.js?v=s60';
 import {
   getMilestoneEventForTurn, rollMidTurnRandomEvent
-} from './events.js?v=s51';
+} from './events.js?v=s60';
 import {
   advancePetYear
-} from './lifeFeatures.js?v=s51';
+} from './lifeFeatures.js?v=s60';
+import { ensureRomanceState, checkPartnerBreakupOnTurnEnd } from './romanceSystem.js?v=s60';
+import { ensureWishbookState } from './wishbook.js?v=s60';
 import {
   ensureDreamState, getDreamScheduleActions, executeDreamAction,
   rollDreamLifecycleEvent, applyDreamAnnualPassives, syncLegacyDreamFields
-} from './dreams.js?v=s51';
-import { rollStageArcadeMoment } from './arcadeGames.js?v=s51';
+} from './dreams.js?v=s60';
+import { rollStageArcadeMoment } from './arcadeGames.js?v=s60';
 import {
   SUBJECT_META, ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
   pickRecommendedSubject, applySubjectStudyStep, simulateSubjectStudyStep,
   makeStudentSnapshotFromState, advanceChildSubTurnCursor, applyParentTutorToChild
-} from './examSystem.js?v=s51';
+} from './examSystem.js?v=s60';
 
 export function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -433,44 +435,36 @@ export function getAvailableActions(state) {
     + (hasHex(state, 'hx_tuck_king') && isChild ? 0.5 : 0)
     + (state.talent?.id === 't_cashflow' ? 0.15 : 0);
 
-  // 1. 成长与学习（学生期接入「学识+数理」直白选科学习与当期教材深度上限 D！）
+  // 1. 成长与学习（Sprint 6 直白化：拆成「文科阅读（涨学识）」与「数理解题（涨数理）」+「课外补习（文理双提）」）
   if (isChild) {
-    const selSubj = state.selectedSubject || pickRecommendedSubject(state);
-    const sMeta = SUBJECT_META[selSubj] || SUBJECT_META.chn;
     const snap = makeStudentSnapshotFromState(state);
-    const simFree = simulateSubjectStudyStep(snap, selSubj, { solo: true });
-    const axisTag = sMeta.axis === 'knowledge'
-      ? `学识 +${Math.round(simFree.dLit)}`
-      : sMeta.axis === 'numLogic'
-        ? `数理 +${Math.round(simFree.dNum)}`
-        : `学识/数理 +1`;
-    const freeChips = simFree.capped
-      ? [{ t: `${sMeta.label}本册已吃透(${simFree.D})`, k: 'gold' }, { t: '可点上方切换科目', k: 'neu' }]
-      : [{ t: axisTag, k: 'pos' }, { t: `${sMeta.label} +${Math.round(simFree.dS)}`, k: 'gold' }, { t: '心态 -1', k: 'neg' }];
+    const simLit = simulateSubjectStudyStep(snap, 'chn', { solo: true });
+    const simNum = simulateSubjectStudyStep(snap, 'math', { solo: true });
     actions.push({
-      id: 'study_self', cat: '1.成长与学习', name: `自习 · ${sMeta.short}`, costCash: 0,
-      chips: freeChips
+      id: 'study_lit', cat: '1.成长与学习', name: '文科阅读（涨学识）', costCash: 0,
+      chips: simLit.capped
+        ? [{ t: `学识本阶已满(${simLit.D})`, k: 'gold' }]
+        : [{ t: `学识 +${Math.max(2, Math.round(simLit.dLit))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
+    });
+    actions.push({
+      id: 'study_num', cat: '1.成长与学习', name: '数理解题（涨数理）', costCash: 0,
+      chips: simNum.capped
+        ? [{ t: `数理本阶已满(${simNum.D})`, k: 'gold' }]
+        : [{ t: `数理 +${Math.max(2, Math.round(simNum.dNum))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
     });
     const canTutor = state.tutoredThisYear < state.origin.eduLimit;
     const halfTutor = state.talent.id === 't_tutor' || state.origin.id === 'teacher';
     const tutorFee = halfTutor ? 60 : 120;
     const tutorMood = state.talent.id === 't_book' ? 1 : 2;
-    const simPaid = simulateSubjectStudyStep(snap, selSubj, { paid: true });
     const eduLimTxt = state.origin.eduLimit >= 99 ? '不限' : `${state.tutoredThisYear}/${state.origin.eduLimit}`;
-    const tutorChips = simPaid.capped
-      ? [{ t: `${sMeta.label}本册已吃透`, k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
-      : (state.subjects[selSubj] < 85
-          ? [{ t: `${sMeta.label} +${simPaid.dS.toFixed(1)}`, k: 'gold' }, { t: '专项提速', k: 'pos' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
-          : [{ t: '≥85无付费加值', k: 'neu' }, { t: `心态 -${tutorMood}`, k: 'neg' }]);
     actions.push({
-      id: 'study_tutor', cat: '1.成长与学习', name: `专项补习·${sMeta.label} (${eduLimTxt})`, costCash: tutorFee, disabled: !canTutor,
-      chips: tutorChips
+      id: 'study_tutor', cat: '1.成长与学习', name: `课外补习 (${eduLimTxt})`, costCash: tutorFee, disabled: !canTutor,
+      chips: [{ t: '学识/数理双提', k: 'gold' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
     });
     if (state.age >= 15) {
-      const simSp = simulateSubjectStudyStep(snap, selSubj, { solo: true, sprint: true });
       actions.push({
-        id: 'gaokao_sprint', cat: '1.成长与学习', name: `考前刷卷·${sMeta.label}`, costCash: 0,
-        chips: [{ t: `${sMeta.label} +${Math.round(simSp.dS)}`, k: 'pos' }, { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
+        id: 'gaokao_sprint', cat: '1.成长与学习', name: '考前冲刺刷卷', costCash: 0,
+        chips: [{ t: '文理全提', k: 'pos' }, { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
       });
     }
   } else if (isUni) {
@@ -588,7 +582,7 @@ export function getAvailableActions(state) {
     });
   }
   if (isElder && state.age >= 60) {
-    const tripCost = hasHex(state, 'hx_duo_warmzen') ? 56000 : 80000;
+    const tripCost = hasHex(state, 'hx_duo_warmzen') ? 38000 : 50000;
     actions.push({
       id: 'world_trip', cat: '6.身心与生活', name: '环游世界一站', costCash: tripCost,
       chips: [{ t: '心态 +8', k: 'pos' }, { t: '圆梦进度 +1', k: 'gold' }]
@@ -634,7 +628,7 @@ export function previewDraft(state, draftIds) {
     const isFlowDup = hasHex(state, 'hx_flow_engine') && (seenInDraft[id] || 0) >= 1;
     seenInDraft[id] = (seenInDraft[id] || 0) + 1;
     cash -= a.costCash;
-    if (['study_self', 'study_tutor', 'gaokao_sprint', 'uni_study', 'uni_intern', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
+    if (['study_lit', 'study_num', 'study_self', 'study_tutor', 'gaokao_sprint', 'uni_study', 'uni_intern', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
     if (['rest', 'exercise', 'square_dance'].includes(id)) hasRestEx = true;
 
     if (a.seasonal && a.effects) {
@@ -652,7 +646,7 @@ export function previewDraft(state, draftIds) {
       if (isFlowDup) fatigue += 2;
       continue;
     }
-    if (id === 'study_self' || id === 'pro_self') { if (!isFlowDup) mood -= 1; fatigue += 1; }
+    if (id === 'study_lit' || id === 'study_num' || id === 'study_self' || id === 'pro_self') { if (!isFlowDup) mood -= 1; fatigue += 1; }
     if (id === 'uni_study') { fatigue += 1; }
     if (id === 'uni_intern') { cash += Math.round(800 * cashMult * (isFlowDup ? 2 : 1)); fatigue += 2; }
     if (id === 'uni_parttime') { cash += Math.round(1400 * cashMult * (isFlowDup ? 2 : 1)); fatigue += 2; }
@@ -737,7 +731,7 @@ export function executeTurn(state, draftIds) {
     seenInDraft[id] = (seenInDraft[id] || 0) + 1;
 
     if (a.costCash > 0) state.cash -= a.costCash;
-    if (['study_self', 'study_tutor', 'gaokao_sprint', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
+    if (['study_lit', 'study_num', 'study_self', 'study_tutor', 'gaokao_sprint', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
     if (['rest', 'exercise', 'square_dance'].includes(id)) { hasRestEx = true; chillCount++; }
 
     let beatText = a.name;
@@ -800,6 +794,24 @@ export function executeTurn(state, draftIds) {
     }
 
     switch (id) {
+      case 'study_lit': {
+        const res = applySubjectStudyStep(state, 'chn', { solo: true, doubleFlow: isFlowDup });
+        applySubjectStudyStep(state, state.age >= 13 ? 'art' : 'eng', { solo: true, doubleFlow: false });
+        if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
+        state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
+        beatText = res.capped ? `学识本阶已满` : `学识 +${Math.max(2, Math.round(res.dLit))}${isFlowDup ? ' (心流)' : ''}`;
+        summary.push(`文科阅读：${beatText}`);
+        break;
+      }
+      case 'study_num': {
+        const res = applySubjectStudyStep(state, 'math', { solo: true, doubleFlow: isFlowDup });
+        if (state.age >= 13) applySubjectStudyStep(state, 'sci', { solo: true, doubleFlow: false });
+        if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
+        state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
+        beatText = res.capped ? `数理本阶已满` : `数理 +${Math.max(2, Math.round(res.dNum))}${isFlowDup ? ' (心流)' : ''}`;
+        summary.push(`数理解题：${beatText}`);
+        break;
+      }
       case 'study_self': {
         const res = applySubjectStudyStep(state, state.selectedSubject, { solo: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
@@ -810,23 +822,25 @@ export function executeTurn(state, draftIds) {
       }
       case 'study_tutor': {
         if (state.tutoredThisYear < state.origin.eduLimit) {
-          const res = applySubjectStudyStep(state, state.selectedSubject, { paid: true, doubleFlow: isFlowDup });
+          applySubjectStudyStep(state, 'chn', { paid: true, doubleFlow: isFlowDup });
+          applySubjectStudyStep(state, 'math', { paid: true, doubleFlow: isFlowDup });
           state.tutoredThisYear++;
           if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - (state.talent.id === 't_book' ? 1 : 2));
           state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
-          beatText = res.capped ? `${res.meta.label}已满` : `${res.meta.label} +${res.dS.toFixed(1)}`;
-          summary.push(`专项补习·${res.meta.label}：${beatText}`);
+          beatText = '学识/数理双提';
+          summary.push('课外补习：学识与数理同步提升');
         }
         break;
       }
       case 'gaokao_sprint': {
-        const res = applySubjectStudyStep(state, state.selectedSubject, { solo: true, sprint: true, doubleFlow: isFlowDup });
+        applySubjectStudyStep(state, 'chn', { solo: true, sprint: true, doubleFlow: isFlowDup });
+        applySubjectStudyStep(state, 'math', { solo: true, sprint: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 2);
         state.stats.fatigue = clamp(state.stats.fatigue + 2 + (isFlowDup ? 2 : 0));
         if (!state.experiences.includes('exp_gaokao_sprint')) state.experiences.push('exp_gaokao_sprint');
-        beatText = `${res.meta.label} +${Math.round(res.dS)} · 冲刺`;
+        beatText = '文理全提 · 冲刺';
         beatKind = 'gold';
-        summary.push(`考前刷卷·${res.meta.label}：专项 +${res.dS.toFixed(1)}，留存冲刺经历`);
+        summary.push('考前冲刺刷卷：学识与数理双提，留存冲刺经历');
         break;
       }
       case 'uni_study': {
@@ -1337,6 +1351,11 @@ export function executeTurn(state, draftIds) {
   }
 
   // 推进子回合或进入年末决算
+  ensureRomanceState(state);
+  ensureWishbookState(state);
+  const partnerBreakupEvent = checkPartnerBreakupOnTurnEnd(state, Boolean(state.romance?.chattedThisTurn || accompaniedPartner));
+  if (state.romance) state.romance.chattedThisTurn = false;
+
   const mp = getMacroParams(state.age);
   state.emoBuyThisTurn = false;
   state.lotteryThisTurn = false;
@@ -1344,6 +1363,8 @@ export function executeTurn(state, draftIds) {
   state.arcadePlayedThisTurn = false;
   if (state.pet) state.pet.pettedThisTurn = 0;
 
+  // 14 岁初二秋季（第 2 季）固定触发校运会三轮晋级赛
+  const needSportsDay = state.age === 14 && state.subTurn === 2 && !state.sportsDayDone;
   // 18 岁第 2 子回合末触发高考节点
   const needGaokao = willGaokao;
 
@@ -1353,7 +1374,7 @@ export function executeTurn(state, draftIds) {
   } else {
     yearEndReport = runYearEnd(state);
   }
-  return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent, midTurnEvent, arcadeMoment, yearEndReport, needGaokao };
+  return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent, midTurnEvent, arcadeMoment, yearEndReport, needGaokao, needSportsDay, partnerBreakupEvent };
 }
 
 export function runYearEnd(state) {

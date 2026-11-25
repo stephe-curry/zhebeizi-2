@@ -2,7 +2,7 @@
 // 四阶生命周期：0 未撞见 -> 1 启蒙火种 -> 2 兴趣萌芽 -> 3 认真追逐 -> 4 终局四重回响（圆梦 / 惜败再战 / 体面和解 / 岁月留白）
 // 严格遵循零 Emoji 与真实千禧烟火质感。
 
-import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s51';
+import { hasHex, getBondTier, getHexInstance } from './hextech.js?v=s60';
 
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(v)));
@@ -26,13 +26,13 @@ export const DREAM_CATALOG = {
   },
   d_hurdle: {
     id: 'd_hurdle',
-    name: '奥运跨栏',
-    short: '跨栏',
+    name: '奥运田径冠军',
+    short: '田径奥运',
     ico: 'stopwatch',
-    actionHobby: { id: 'dr_hurdle', name: '放学压腿过栏', short: '放学过栏', wellBg: '#e4f4eb' },
-    actionPro:   { id: 'dr_hurdle', name: '专项七步上栏', short: '专项跨栏', wellBg: '#e4f4eb' },
-    keepsakeHobby: '许老师的旧秒表',
-    keepsakeWin: '十栏决赛钉鞋与金牌',
+    actionHobby: { id: 'dr_hurdle', name: '校队专项训练', short: '校队特训', wellBg: '#e4f4eb' },
+    actionPro:   { id: 'dr_hurdle', name: '省队备战集训', short: '省队集训', wellBg: '#e4f4eb' },
+    keepsakeHobby: '校运会冠军奖牌',
+    keepsakeWin: '奥运决赛金牌',
     pivotTrait: '终身体能底子（每年衰老损耗 -1 · 健康上限稳固）',
     winPerk: '体坛津贴与代言（每年 +¥32,000 · 健康 +2）',
     climaxMinAge: 19,
@@ -349,13 +349,14 @@ function pickWeightedSparkDream(state, draftIds) {
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
     if (d.stage > 0 || d.seenSlices.includes('spark')) continue;
+    // 奥运田径冠军梦改为仅通过 14 岁初中校运会夺冠动态开启，绝不随机写死跨栏
+    if (id === 'd_hurdle') continue;
     if (isAdult && state.age > 28) continue;
     let w = 1.0;
     if (id === 'd_esport' && (draftIds.includes('summer_fc') || draftIds.includes('accompany_friend') || draftIds.includes('overtime'))) w += 3.2;
-    if (id === 'd_hurdle' && (draftIds.includes('exercise') || draftIds.includes('sea_sports') || state.age === 16)) w += 3.4;
-    if (id === 'd_tsinghua' && (draftIds.includes('study_self') || draftIds.includes('study_tutor') || state.stats.knowledge >= 34)) w += 3.0;
+    if (id === 'd_tsinghua' && (draftIds.includes('study_lit') || draftIds.includes('study_num') || draftIds.includes('study_self') || draftIds.includes('study_tutor') || state.stats.knowledge >= 34)) w += 3.0;
     if (id === 'd_singer' && (draftIds.includes('rest') || draftIds.includes('pub_drink') || draftIds.includes('summer_cicada'))) w += 3.2;
-    if (id === 'd_surgeon' && (draftIds.includes('accompany_parents') || draftIds.includes('study_self'))) w += 2.8;
+    if (id === 'd_surgeon' && (draftIds.includes('accompany_parents') || draftIds.includes('study_lit') || draftIds.includes('study_num'))) w += 2.8;
     pool.push({ id, w });
   }
   if (!pool.length) return null;
@@ -589,9 +590,10 @@ function buildDreamCommitEvent(state, id) {
     };
   }
 
+  const sportName = state.olympicSport?.name || '田径';
   const descMap = {
     d_esport: '青训营发来试训邀请函。一旦动真格投入，意味着要把大量业余时间砸进枯燥的战术复盘与高强排位里，黄金年龄只有这几年。',
-    d_hurdle: '区队/省队选拔名单开始报名。从喜欢跨栏到真正站上专业赛道，要扛住日复一日的起跨酸痛与伤病风险。',
+    d_hurdle: `自从初二校运会夺得「${sportName}」冠军后，省体校正式向你发出集训邀请。走上专业赛道意味着告别普通人的轻松假期，你愿意去拼这趟奥运之旅吗？`,
     d_tsinghua: state.gaokaoDone
       ? '距离考研清北只剩最后两年的攻坚窗口，一旦立下志愿，每个周末都将与真题卷和专业课长伴。'
       : '你在年级排名里看到了冲击清北的微光。立下这个目标，意味着接下来每一张模考卷都要按最高标准死磕。',
@@ -628,10 +630,10 @@ function buildDreamQualifierEvent(state, id) {
       steadyLabel: '稳健打满视野配合体系过关（电竞 +6，签约入选青训二队）'
     },
     d_hurdle: {
-      title: '【晋级选拔】省田径锦标赛 · 达标线资格战',
-      summary: '走上省赛塑胶跑道，只有跑进国家一级达标线，才能拿到全国大赛入场券与省队集训津贴。许老师站在看台第一排朝你比了个稳住七步节奏的手势。',
-      liveLabel: '踏上起跑器亲自冲刺过栏（20秒十栏节奏选拔 · 达标享省队津贴 +¥1万/年）',
-      steadyLabel: '按平时训练步点稳健完赛达标（跨栏 +6，健康 +2，入选省集训名单）'
+      title: `【晋级选拔】省田径锦标赛 · ${state.olympicSport?.name || '田径'}资格战`,
+      summary: `站上省赛赛场，只要在「${state.olympicSport?.name || '田径'}」项目顺利达标，就能拿到国家集训队入场券与省队津贴。`,
+      liveLabel: `全力出战${state.olympicSport?.name || '田径'}选拔赛（达标享省队津贴 +¥1万/年）`,
+      steadyLabel: `按节奏稳健完赛达标（奥运专长 +6，健康 +2，入选国家集训名单）`
     },
     d_tsinghua: {
       title: !state.gaokaoDone ? '【晋级大考】高三全市统测 · 压轴大题破壁' : '【晋级大考】清北考研初试 · 专业课压轴攻坚',
@@ -735,14 +737,14 @@ function buildDreamAdversityEvent(state, id) {
       softEff: { dreamXp: { id, v: 4 }, mood: -2 }
     },
     d_hurdle: {
-      title: '【追梦逆境】选拔赛前一周发紧的跟腱',
-      summary: '连续三周上强度冲栏间节奏后，左脚跟腱在早训热身时隐隐发紧。队医提醒硬上高强度可能拉伤，可正式达标赛就在七天后。',
+      title: `【追梦考验】大赛前一周的状态调整（${state.olympicSport?.name || '田径'}）`,
+      summary: `备战全国选拔赛进入最后冲刺，高强度合练后身体略感疲劳。队医建议科学减量恢复，而大赛就在七天后。`,
       hexOk: getBondTier(state, 'zen') >= 2 || hasHex(state, 'hx_sleep_2') || hasHex(state, 'hx_hurdle_wind'),
-      hexLabel: '【海克斯破局 · 科学步点超量恢复】精准冰敷理疗微调七步上栏节奏，零伤病跑出个人最好成绩（跨栏 +8，健康 +3）！',
+      hexLabel: `【海克斯破局 · 科学超量恢复】精准调整大赛状态，零伤病刷新个人最好成绩（专长 +8，健康 +3）！`,
       hexEff: { dreamXp: { id, v: 8 }, health: 3, mood: 5 },
-      hardLabel: '缠紧肌贴咬牙顶过选拔强度（跨栏 +7，健康 -7，疲劳 +3）',
+      hardLabel: '咬牙咬紧最后一周高强度备战（专长 +7，健康 -7，疲劳 +3）',
       hardEff: { dreamXp: { id, v: 7 }, health: -7, fatigue: 3 },
-      softLabel: '果断减量保住跟腱不留暗伤（健康 +2，跨栏 +3）',
+      softLabel: '听从队医建议科学减量保住体能底子（健康 +2，专长 +3）',
       softEff: { dreamXp: { id, v: 3 }, health: 2 }
     },
     d_esport: {
@@ -827,11 +829,11 @@ function buildDreamClimaxEvent(state, id) {
       nearMissTxt: '水晶在差两下平A时被对方极限守住，2:3 屈居亚军。漫天金雨落在对面半场，但全场观众依然喊着你的名字。'
     },
     d_hurdle: {
-      title: '【终局决战】大赛十栏决赛 · 第八栏到终点线',
-      summary: `站上最高级别决赛第四道，发令枪响后前七栏你与第一名几乎齐平（当前综合竞技状态：${baseScore}/90）。冲向最后三栏时：`,
-      optA: '压低躯干全力提频冲刺破纪录（爆发冲线 · 最高 +12 临场分，疲劳 +2）',
-      optB: '死守七步上栏完美节奏稳撞终点（零失误发挥 · +7 临场分）',
-      nearMissTxt: '千分之八秒之差收获银牌。披着毛巾看向大屏幕成绩那一刻有遗憾，却也跑出了无愧青春的一枪。'
+      title: `【终局决战】奥运「${state.olympicSport?.name || '田径'}」总决赛之夜`,
+      summary: `披挂国家队战袍站上奥运决赛最高舞台！从当年初二校运会夺冠走到今天（当前综合竞技状态：${baseScore}/90），决胜一搏就在眼前：`,
+      optA: `放手一搏冲击个人极限破纪录（激进搏金 · 最高 +12 临场分，疲劳 +2）`,
+      optB: `稳扎稳打发挥最高水准零失误（稳健发挥 · +7 临场分）`,
+      nearMissTxt: `以微弱差距收获奥运银牌。披着国旗看向大屏幕那一刻虽有遗憾，却也交出了无愧青春的巅峰一战。`
     },
     d_tsinghua: {
       title: state.gaokaoDone ? '【终局决战】清北研究生复试终面' : '【终局决战】清北选拔终极冲线',
@@ -859,7 +861,7 @@ function buildDreamClimaxEvent(state, id) {
   const sc = sceneMap[id];
   const liveLabelMap = {
     d_esport: '亲自上阵决胜局微操（22秒切集火实操 · S级直加 +18 临场分）',
-    d_hurdle: '亲自踏上决赛跑道跨栏（20秒三道跨栏实操 · S级直加 +18 临场分）',
+    d_hurdle: `亲自出战奥运${state.olympicSport?.name || '田径'}决赛（临场实操 · S级直加 +18 临场分）`,
     d_tsinghua: '亲自挑战压轴题闪电连线（28秒考场连连看 · S级直加 +18 临场分）',
     d_singer: '亲自弹唱带动万人安可（28秒旋律连线 · S级直加 +18 临场分）',
     d_surgeon: '亲自主刀腔镜稳手考核（精准张力控制 · S级直加 +18 临场分）'

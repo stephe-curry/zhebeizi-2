@@ -140,7 +140,7 @@ export const UNIVERSITIES = [
 
 export const DREAMS = [
   { id: 'd_esport', name: '01 电竞职业', desc: 'v1.4 已审主线接口：少年反应与战队试训' },
-  { id: 'd_hurdle', name: '02 奥运跨栏', desc: 'v1.4 已审主线接口：田径体能与赛场冲刺' },
+  { id: 'd_hurdle', name: '02 奥运田径冠军', desc: '初二校运会夺冠动态解锁的专属奥运田径梦' },
   { id: 'd_tsinghua', name: '03 清北学术', desc: 'v1.4 已审主线接口：竞赛特招与科研攀登' },
   { id: 'd_singer', name: '11 原创歌手', desc: 'v1.4 已审主线接口：词曲创作与舞台发声' },
   { id: 'd_surgeon', name: '08 外科医生', desc: 'v1.4 已审主线接口：医途规培与无影灯下' }

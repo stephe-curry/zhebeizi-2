@@ -135,17 +135,17 @@ export const SCHEDULE_COMBOS = [
   {
     id: 'cb_drm_hurdle', name: '超量恢复', stage: 'any', crestIco: 'stopwatch',
     req: ['dr_hurdle', 'rest'],
-    pills: ['跨栏 +3', '疲劳 -2'],
-    desc: '跨栏专长额外 +3 · 额外消除 2 点疲劳',
-    hint: '跨栏训练 + 完整休息',
+    pills: ['奥运 +3', '疲劳 -2'],
+    desc: '奥运田径专长额外 +3 · 额外消除 2 点疲劳',
+    hint: '校队/省队特训 + 完整休息',
     bonus: { dreamId: 'd_hurdle', dream: 3, fatigue: -2, health: 1 }
   },
   {
     id: 'cb_drm_tsinghua', name: '融会贯通', stage: 'any', crestIco: 'trophy',
-    reqAnyOf: [['dr_tsinghua'], ['study_self', 'gaokao_sprint', 'uni_study']],
+    reqAnyOf: [['dr_tsinghua'], ['study_lit', 'study_num', 'study_self', 'gaokao_sprint', 'uni_study']],
     pills: ['清北 +3', '学识 +2'],
     desc: '清北专长额外 +3 · 学识额外 +2',
-    hint: '死磕难题/真题 + 课业自习/冲刺',
+    hint: '死磕难题/真题 + 文科阅读/数理解题',
     bonus: { dreamId: 'd_tsinghua', dream: 3, knowledge: 2 }
   },
   {
@@ -341,6 +341,8 @@ export function rollSeasonalOfferIds(state, extraCount = 0) {
 // ===== 3. 点击选项时「人物动作微动效 + 轻像素道具贴片 + 舞台灯光 + 气泡」映射表 =====
 export function getActionAnimSpec(actionId, state) {
   const map = {
+    study_lit:         { anim: 'anim-study',     prop: 'study',       subProp: 'bulb',  light: 'light-focus', bubble: '读进心里！' },
+    study_num:         { anim: 'anim-study',     prop: 'bulb',        subProp: 'spark', light: 'light-focus', bubble: '解出来了！' },
     study_self:        { anim: 'anim-study',     prop: 'study',       subProp: 'bulb',  light: 'light-focus', bubble: '记下来！' },
     study_tutor:       { anim: 'anim-sprint',    prop: 'tutor',       subProp: 'bulb',  light: 'light-focus', bubble: '名师提点!' },
     gaokao_sprint:     { anim: 'anim-sprint',    prop: 'fire',        subProp: 'lamp',  light: 'light-night', bubble: '拼了！！' },
@@ -361,7 +363,7 @@ export function getActionAnimSpec(actionId, state) {
     play_kid:          { anim: 'anim-active',    prop: 'plane',       subProp: 'heart', light: 'light-sun',   bubble: '飞高高~' },
     // 五条梦想专属微动效
     dr_esport:         { anim: 'anim-sprint',    prop: 'gamepad',     subProp: 'fire',  light: 'light-dream', bubble: '一波反打!' },
-    dr_hurdle:         { anim: 'anim-active',    prop: 'stopwatch',   subProp: 'spark', light: 'light-sun',   bubble: '七步过栏!' },
+    dr_hurdle:         { anim: 'anim-active',    prop: 'stopwatch',   subProp: 'spark', light: 'light-sun',   bubble: '冲刺奥运!' },
     dr_tsinghua:       { anim: 'anim-study',     prop: 'trophy',      subProp: 'bulb',  light: 'light-focus', bubble: '解出来了!' },
     dr_singer:         { anim: 'anim-social',    prop: 'guitar',      subProp: 'spark', light: 'light-dream', bubble: '这段好听~' },
     dr_surgeon:        { anim: 'anim-study',     prop: 'stethoscope', subProp: 'heart', light: 'light-focus', bubble: '稳住手势!' },
