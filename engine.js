@@ -25,7 +25,7 @@ import { rollStageArcadeMoment } from './arcadeGames.js?v=s60';
 import {
   SUBJECT_META, ensureExamState, syncVisibleAcademicStats, getStageTextbookCap,
   pickRecommendedSubject, applySubjectStudyStep, simulateSubjectStudyStep,
-  makeStudentSnapshotFromState, advanceChildSubTurnCursor, applyParentTutorToChild
+  applyDirectAcademicAction, makeStudentSnapshotFromState, advanceChildSubTurnCursor, applyParentTutorToChild
 } from './examSystem.js?v=s60';
 
 export function clamp(v, min = 0, max = 100) {
@@ -461,7 +461,7 @@ export function getAvailableActions(state) {
       id: 'study_tutor', cat: '1.成长与学习', name: `课外补习 (${eduLimTxt})`, costCash: tutorFee, disabled: !canTutor,
       chips: [{ t: '学识/数理双提', k: 'gold' }, { t: `心态 -${tutorMood}`, k: 'neg' }]
     });
-    if (state.age >= 15) {
+    if (state.age >= 15 && state.schoolTier !== 'vocational') {
       actions.push({
         id: 'gaokao_sprint', cat: '1.成长与学习', name: '考前冲刺刷卷', costCash: 0,
         chips: [{ t: '文理全提', k: 'pos' }, { t: '冲刺经历', k: 'gold' }, { t: '疲劳 +2', k: 'neg' }]
@@ -534,7 +534,7 @@ export function getAvailableActions(state) {
   if (state.age >= 19 && state.relations.partner) {
     actions.push({
       id: 'date_partner', cat: '3.情感与社交', name: state.relations.partner.married ? '夫妻约会' : '恋爱约会', costCash: 300,
-      chips: [{ t: '伴侣亲密 +5', k: 'pos' }, { t: '心态 +3', k: 'pos' }]
+      chips: [{ t: '伴侣好感度 +5', k: 'pos' }, { t: '心态 +3', k: 'pos' }]
     });
   }
   if (isElder) {
@@ -544,15 +544,18 @@ export function getAvailableActions(state) {
     });
   }
 
-  // 4. 家庭与育儿（支持切换辅导文科 / 辅导理科 / 全科，受父母自身学识与数理水平加成！）
-  if (state.child && state.age - state.child.bornAge <= 18) {
-    const kf = state.tutorKidFocus || 'balanced';
-    const kfLb = kf === 'lit' ? '补文科' : kf === 'num' ? '补理科' : '全科';
-    const pBoost = (kf === 'lit' && state.stats.knowledge >= 70) || (kf === 'num' && state.stats.numLogic >= 70);
-    actions.push({
-      id: 'tutor_kid', cat: '4.家庭与育儿', name: `辅导孩子功课 (${kfLb})`, costCash: 0,
-      chips: [{ t: pBoost ? '高学历点拨 ×1.35' : '娃分科提升', k: pBoost ? 'gold' : 'pos' }, { t: '心态 -2', k: 'neg' }, { t: '疲劳 +2', k: 'neu' }]
-    });
+  // 4. 家庭与育儿（P1-07：0-5岁仅保留高质量陪娃，满 6 岁入学后才开放辅导功课）
+  if (state.child && (state.age - state.child.bornAge) <= 18) {
+    const kidAge = state.age - state.child.bornAge;
+    if (kidAge >= 6) {
+      const kf = state.tutorKidFocus || 'balanced';
+      const kfLb = kf === 'lit' ? '补文科' : kf === 'num' ? '补理科' : '全科';
+      const pBoost = (kf === 'lit' && state.stats.knowledge >= 70) || (kf === 'num' && state.stats.numLogic >= 70);
+      actions.push({
+        id: 'tutor_kid', cat: '4.家庭与育儿', name: `辅导孩子功课 (${kfLb})`, costCash: 0,
+        chips: [{ t: pBoost ? '高学历点拨 ×1.35' : '娃分科提升', k: pBoost ? 'gold' : 'pos' }, { t: '心态 -2', k: 'neg' }, { t: '疲劳 +2', k: 'neu' }]
+      });
+    }
     actions.push({
       id: 'play_kid', cat: '4.家庭与育儿', name: '高质量陪娃', costCash: 100,
       chips: [{ t: '亲子羁绊 +4', k: 'pos' }, { t: '娃心态 +4', k: 'pos' }]
@@ -730,6 +733,10 @@ export function executeTurn(state, draftIds) {
     const isFlowDup = hasHex(state, 'hx_flow_engine') && (seenInDraft[id] || 0) >= 1;
     seenInDraft[id] = (seenInDraft[id] || 0) + 1;
 
+    // P1-06：补习额度与余额逐格校验，超额不扣费
+    if (id === 'study_tutor' && (state.tutoredThisYear >= state.origin.eduLimit || state.cash < a.costCash)) {
+      continue;
+    }
     if (a.costCash > 0) state.cash -= a.costCash;
     if (['study_lit', 'study_num', 'study_self', 'study_tutor', 'gaokao_sprint', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
     if (['rest', 'exercise', 'square_dance'].includes(id)) { hasRestEx = true; chillCount++; }
@@ -758,7 +765,16 @@ export function executeTurn(state, draftIds) {
         parts.push(`收获 +¥${earn.toLocaleString()}`);
         beatKind = 'gold';
       }
-      if (ef.knowledge) { state.stats.knowledge = clamp(state.stats.knowledge + ef.knowledge); state.usedThisYear.knowledge = true; parts.push(`学识 +${ef.knowledge}`); }
+      if (ef.knowledge) {
+        if (state.age <= 18 && state.statsRaw) {
+          state.statsRaw.knowledge = Math.min(getStageTextbookCap(state.age), state.statsRaw.knowledge + ef.knowledge);
+          syncVisibleAcademicStats(state);
+        } else {
+          state.stats.knowledge = clamp(state.stats.knowledge + ef.knowledge);
+        }
+        state.usedThisYear.knowledge = true;
+        parts.push(`学识 +${ef.knowledge}`);
+      }
       if (ef.pro) { state.stats.pro = clamp(state.stats.pro + ef.pro); state.usedThisYear.pro = true; parts.push(`专业 +${ef.pro}`); }
       if (ef.expr) { state.stats.expr = clamp(state.stats.expr + ef.expr); state.usedThisYear.expr = true; parts.push(`表达 +${ef.expr}`); }
       if (ef.selfCare) { state.stats.selfCare = clamp(state.stats.selfCare + ef.selfCare); state.usedThisYear.selfCare = true; parts.push(`自理 +${ef.selfCare}`); }
@@ -787,7 +803,7 @@ export function executeTurn(state, draftIds) {
         state.elderCircleProgress += ef.elderCircle;
         if (state.elderCircleProgress >= 3) state.elderCircle = true;
       }
-      if (['summer_swim', 'sea_teambuild', 'sea_fishing_trip', 'sea_sunset_tour'].includes(id)) {
+      if (['sea_teambuild', 'sea_fishing_trip', 'sea_sunset_tour'].includes(id)) {
         ensureWishbookState(state);
         const stampKey = `${id}_${state.age}`;
         if (!state.travelStamps.includes(stampKey)) state.travelStamps.push(stampKey);
@@ -800,20 +816,18 @@ export function executeTurn(state, draftIds) {
 
     switch (id) {
       case 'study_lit': {
-        const res = applySubjectStudyStep(state, 'chn', { solo: true, doubleFlow: isFlowDup });
-        applySubjectStudyStep(state, state.age >= 13 ? 'art' : 'eng', { solo: true, doubleFlow: false });
+        const res = applyDirectAcademicAction(state, 'lit', { solo: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
         state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
-        beatText = res.capped ? `学识本阶已满` : `学识 +${Math.max(2, Math.round(res.dLit))}${isFlowDup ? ' (心流)' : ''}`;
+        beatText = res.capped ? `学识本阶已满` : `学识 +${Math.max(1, Math.round(res.dLit))}${isFlowDup ? ' (心流)' : ''}`;
         summary.push(`文科阅读：${beatText}`);
         break;
       }
       case 'study_num': {
-        const res = applySubjectStudyStep(state, 'math', { solo: true, doubleFlow: isFlowDup });
-        if (state.age >= 13) applySubjectStudyStep(state, 'sci', { solo: true, doubleFlow: false });
+        const res = applyDirectAcademicAction(state, 'num', { solo: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 1);
         state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
-        beatText = res.capped ? `数理本阶已满` : `数理 +${Math.max(2, Math.round(res.dNum))}${isFlowDup ? ' (心流)' : ''}`;
+        beatText = res.capped ? `数理本阶已满` : `数理 +${Math.max(1, Math.round(res.dNum))}${isFlowDup ? ' (心流)' : ''}`;
         summary.push(`数理解题：${beatText}`);
         break;
       }
@@ -827,8 +841,7 @@ export function executeTurn(state, draftIds) {
       }
       case 'study_tutor': {
         if (state.tutoredThisYear < state.origin.eduLimit) {
-          applySubjectStudyStep(state, 'chn', { paid: true, doubleFlow: isFlowDup });
-          applySubjectStudyStep(state, 'math', { paid: true, doubleFlow: isFlowDup });
+          applyDirectAcademicAction(state, 'tutor', { paid: true, doubleFlow: isFlowDup });
           state.tutoredThisYear++;
           if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - (state.talent.id === 't_book' ? 1 : 2));
           state.stats.fatigue = clamp(state.stats.fatigue + 1 + (isFlowDup ? 2 : 0));
@@ -838,8 +851,7 @@ export function executeTurn(state, draftIds) {
         break;
       }
       case 'gaokao_sprint': {
-        applySubjectStudyStep(state, 'chn', { solo: true, sprint: true, doubleFlow: isFlowDup });
-        applySubjectStudyStep(state, 'math', { solo: true, sprint: true, doubleFlow: isFlowDup });
+        applyDirectAcademicAction(state, 'sprint', { solo: true, sprint: true, doubleFlow: isFlowDup });
         if (!isFlowDup) state.stats.mood = clamp(state.stats.mood - 2);
         state.stats.fatigue = clamp(state.stats.fatigue + 2 + (isFlowDup ? 2 : 0));
         if (!state.experiences.includes('exp_gaokao_sprint')) state.experiences.push('exp_gaokao_sprint');
@@ -981,7 +993,7 @@ export function executeTurn(state, draftIds) {
           const dm = winterActive ? 1 : (hasHex(state, 'hx_duo_warmzen') ? 5 : 3);
           state.stats.mood = clamp(state.stats.mood + dm);
           if (!state.experiences.includes('exp_love_bond')) state.experiences.push('exp_love_bond');
-          beatText = `伴侣亲密 +${inc} · 心态+${dm}`;
+          beatText = `伴侣好感度 +${inc} · 心态+${dm}`;
           summary.push(`伴侣约会：亲密 +${inc}，心态 +${dm}`);
         }
         break;
@@ -1282,7 +1294,8 @@ export function executeTurn(state, draftIds) {
   }
   const immuneDecay = getBondTier(state, 'warmth') >= 2 || hasHex(state, 'hx_pop_3');
   if (!immuneDecay) {
-    if (state.relations.partner && !accompaniedPartner) {
+    // P1-08：未婚伴侣冷落统一由 checkPartnerBreakupOnTurnEnd 维护计数，避免双重递增清零；已婚伴侣仅轻度衰减
+    if (state.relations.partner?.married && !accompaniedPartner) {
       state.relations.partner.missedTurns++;
       if (state.relations.partner.missedTurns >= 2) {
         state.relations.partner.intimacy = clamp(state.relations.partner.intimacy - 2);
@@ -1373,11 +1386,19 @@ export function executeTurn(state, draftIds) {
   // 18 岁第 2 子回合末触发高考节点
   const needGaokao = willGaokao;
 
+  // P0-04：持久化待完成强制决策队列，确保刷新后读档必能恢复
+  if (!Array.isArray(state.pendingMandatory)) state.pendingMandatory = [];
+  if (needSportsDay && !state.pendingMandatory.includes('sports_day')) state.pendingMandatory.push('sports_day');
+  if (needGaokao && !state.pendingMandatory.includes('gaokao')) state.pendingMandatory.push('gaokao');
+
   let yearEndReport = null;
   if (state.subTurn < mp.subTurns) {
     state.subTurn++;
   } else {
     yearEndReport = runYearEnd(state);
+  }
+  if (state.age === state.gradAge && state.subTurn === 1 && !state.track && !state.pendingMandatory.includes('grad')) {
+    state.pendingMandatory.push('grad');
   }
   return { summary, stepBeats, combosTriggered, newlyDiscoveredCombos, rerollTicketsEarned, hexTriggers, triggeredEvent, midTurnEvent, arcadeMoment, yearEndReport, needGaokao, needSportsDay, partnerBreakupEvent };
 }
@@ -1512,12 +1533,18 @@ export function runYearEnd(state) {
       lines.push(`年度房租支出：-${rent.toLocaleString()} 元${rentMult > 1 ? ' (留大城压力期)' : ''}`);
     } else {
       if (state.house.loan > 0) {
-        const interest = Math.round(state.house.loan * 0.03);
-        const pmtYr = state.house.pmtMo * 12;
-        const principal = Math.min(state.house.loan, Math.max(0, pmtYr - interest));
-        state.house.loan -= principal;
-        yearExp += (interest + principal);
-        lines.push(`年度房贷还本付息：-${(interest + principal).toLocaleString()} 元 (余贷 ${Math.round(state.house.loan/10000)} 万)`);
+        let yrPaid = 0;
+        for (let m = 0; m < 12 && state.house.loan > 0; m++) {
+          const mInt = state.house.loan * (0.03 / 12);
+          const pay = Math.min(state.house.loan + mInt, state.house.pmtMo);
+          const prin = Math.max(0, pay - mInt);
+          state.house.loan = Math.max(0, state.house.loan - prin);
+          yrPaid += pay;
+        }
+        if (state.house.loan < 5) state.house.loan = 0;
+        const pmtYr = Math.round(yrPaid);
+        yearExp += pmtYr;
+        lines.push(`年度房贷还本付息：-${pmtYr.toLocaleString()} 元 (余贷 ${Math.round(state.house.loan/10000)} 万)`);
       }
       const maint = Math.round(state.house.basePrice * 0.005);
       yearExp += maint;
@@ -1655,9 +1682,10 @@ export function runYearEnd(state) {
     }
   }
 
-  // 5. 人生树分叉自动存档（18 / 30 / 50 岁）
+  // 5. 人生树分叉自动存档（18 / 30 / 50 岁：存为已跨入新年的第 1 季起点，恢复后绝不重复触发年结！）
   if ([18, 30, 50].includes(state.age)) {
-    state.branches[state.age] = JSON.stringify({ ...state, branches: {} });
+    const snapBranch = { ...state, age: state.age + 1, subTurn: 1, branches: {} };
+    state.branches[state.age] = JSON.stringify(snapBranch);
     lines.push(`【人生树分叉点】已自动保存 ${state.age} 岁存档，可随时回溯重走！`);
   }
 
@@ -1760,7 +1788,7 @@ export function estimateAnnualCashflow(state) {
 
 export function evaluateEnding(state) {
   const nw = getNetWorth(state);
-  const originBase = { poor: 50000, working: 400000, welloff: 1500000, middle: 5000000, rich: 20000000 }[state.origin.id];
+  const originBase = state.origin?.familyAsset || 400000;
   const leapBonus = nw > originBase * 2 ? 25 : (nw > originBase ? 15 : 5);
   const careerScore = clamp(30 + leapBonus + (state.jobLevel * 8) + (state.house ? (state.house.tier === '富豪' ? 25 : state.house.tier === '中产' ? 18 : 10) : 0) + (nw >= 5000000 ? 15 : nw >= 2000000 ? 10 : 0));
 

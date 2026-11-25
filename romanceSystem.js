@@ -274,7 +274,7 @@ export const ADULT_CANDIDATES = {
       ]
     },
     {
-      id: 'ad_m2', name: '周明远', tag: '稳重三甲医生', bg: '#f1f5f9', bgId: 'high', incomeMult: 1.4,
+      id: 'ad_m2', name: '周明远', tag: '稳重三甲医生', bg: '#f1f5f9', bgId: 'mid', incomeMult: 1.0,
       job: '三甲医院外科医生 · 情绪极稳',
       likes: ['手写读书笔记', '羽毛球', '江边夜跑', '清茶淡饭', '守时守信', '老歌黑胶'],
       dislikes: '无理取闹、熬夜透支身体',
@@ -292,7 +292,7 @@ export const ADULT_CANDIDATES = {
       ]
     },
     {
-      id: 'ad_m3', name: '许南风', tag: '文艺咖啡馆主理', bg: '#fbf3e8', bgId: 'mid', incomeMult: 1.0,
+      id: 'ad_m3', name: '许南风', tag: '文艺咖啡馆主理', bg: '#fbf3e8', bgId: 'normal', incomeMult: 0.85,
       job: '独立咖啡馆主理人 · 浪漫松弛',
       likes: ['精品手冲', '城市漫步', '独立乐队', '养柯基', '胶片扫街', '雨夜爵士'],
       dislikes: '功利算计、否定热爱',
@@ -314,17 +314,18 @@ export const ADULT_CANDIDATES = {
 
 export function ensureRomanceState(state) {
   if (!state) return state;
-  if (!state.romance) {
-    state.romance = {
-      aff: {},         // candidateId -> 好感度 0..100
-      chatIdx: {},     // candidateId -> 已聊轮次
-      chattedThisTurn: false,
-      hsDatedOnce: false,
-      warnedCold: false,
-      exHistory: []
-    };
+  if (!state.romance || typeof state.romance !== 'object') {
+    state.romance = {};
   }
-  const pool = [...(HS_CANDIDATES[state.gender] || HS_CANDIDATES.male), ...(ADULT_CANDIDATES[state.gender] || ADULT_CANDIDATES.male)];
+  if (!state.romance.aff || typeof state.romance.aff !== 'object') state.romance.aff = {};
+  if (!state.romance.chatIdx || typeof state.romance.chatIdx !== 'object') state.romance.chatIdx = {};
+  if (typeof state.romance.chattedThisTurn !== 'boolean') state.romance.chattedThisTurn = false;
+  if (typeof state.romance.hsDatedOnce !== 'boolean') state.romance.hsDatedOnce = false;
+  if (typeof state.romance.warnedCold !== 'boolean') state.romance.warnedCold = false;
+  if (!Array.isArray(state.romance.exHistory)) state.romance.exHistory = [];
+
+  const g = state.gender === 'female' ? 'female' : 'male';
+  const pool = [...(HS_CANDIDATES[g] || HS_CANDIDATES.male), ...(ADULT_CANDIDATES[g] || ADULT_CANDIDATES.male)];
   for (const c of pool) {
     if (typeof state.romance.aff[c.id] !== 'number') {
       state.romance.aff[c.id] = c.id.startsWith('hs_') ? 34 : 30;
@@ -369,7 +370,7 @@ export function startRelationshipWith(state, cand) {
   state.stats.mood = Math.min(100, (state.stats.mood || 70) + 6);
 }
 
-// 玩家主动提出分手
+// 玩家主动提出分手（P1-09：用 ?? 保留 0 心态下界，绝不回弹到 65）
 export function playerBreakupPartner(state) {
   if (!state.relations?.partner) return null;
   const p = state.relations.partner;
@@ -377,7 +378,7 @@ export function playerBreakupPartner(state) {
   state.romance.exHistory.push({ name: p.name, age: state.age, by: 'player' });
   state.relations.partner = null;
   state.romance.warnedCold = false;
-  state.stats.mood = Math.max(0, (state.stats.mood || 70) - 5);
+  state.stats.mood = Math.max(0, (state.stats.mood ?? 70) - 5);
   return `你约 ${p.name} 好好聊了一次，体面地提出分手。短暂失落后（心态 -5），你重新恢复了自由单身。`;
 }
 
@@ -448,7 +449,8 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
   await ensureRomancePortraits();
   ensureRomanceState(state);
   const poolInfo = getCandidatePoolForAge(state);
-  let activeId = preselectId;
+  // P1-09：若已有校园/成年恋人，默认直达恋人对话页（即使校园恋人跨入 19+ 岁也可继续聊天！）
+  let activeId = preselectId || (state.relations?.partner?.id && findCandidateMeta(state.relations.partner.id) ? state.relations.partner.id : null);
   let lastFeedback = null;
 
   const renderHub = () => {
@@ -471,7 +473,7 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
             <div class="rom-list">
               ${list.map(c => {
                 const isPartner = partner && partner.id === c.id;
-                const aff = isPartner ? partner.intimacy : (state.romance.aff[c.id] || 30);
+                const aff = isPartner ? partner.intimacy : (state.romance.aff[c.id] ?? 30);
                 const lockedByOther = Boolean(partner && !isPartner);
                 const pUrl = getCachedPortrait(c.id);
                 return `
@@ -529,7 +531,7 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
     // Step 2: 一对一二选一对话页
     const cand = findCandidateMeta(activeId) || list[0];
     const isPartner = partner && partner.id === cand.id;
-    const aff = isPartner ? partner.intimacy : (state.romance.aff[cand.id] || 30);
+    const aff = isPartner ? partner.intimacy : (state.romance.aff[cand.id] ?? 30);
     const pUrl = getCachedPortrait(cand.id);
     const idx = (state.romance.chatIdx[cand.id] || 0) % cand.chats.length;
     const chatObj = cand.chats[idx];

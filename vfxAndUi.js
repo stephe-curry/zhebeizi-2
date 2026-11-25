@@ -1181,7 +1181,10 @@ export function renderDreamJournalSection(state) {
               const medTxt = d.qualified ? '已取执业医证' : d.medQualified ? '医学在读·待考执业证' : '待取医学学籍';
               extraInfo = `${medTxt} · 熟练 ${d.xp}/100`;
             } else if (d.id === 'd_tsinghua') {
-              const qTxt = !state.gaokaoDone ? `高考冲刺加分 +${Math.min(5, Math.floor(d.xp / 12))}` : '考研逆袭清北线';
+              const realBonus = Number(state.tsinghuaMockBonus || 0);
+              const qTxt = !state.gaokaoDone
+                ? (realBonus > 0 ? `已获高三统测加分 +${realBonus}` : '待高三统测冲击加分')
+                : '考研逆袭清北线';
               extraInfo = `${qTxt} · 熟练 ${d.xp}/100`;
             } else if (d.qualified) {
               extraInfo = `${d.id === 'd_esport' ? '青训二队在约' : '省集训队达标'} · 熟练 ${d.xp}/100`;

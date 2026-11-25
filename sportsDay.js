@@ -172,7 +172,7 @@ export async function openSportsDayTournament(state, mountOverlay, clearOverlay,
               ? `全班冲上跑道把你高高抛起！看台边的市体校教练记下了你的名字，正式向你发出邀请——你的「奥运 · ${chosenEvent.name}冠军梦」就此点亮！（本回合累计健康 +${earnedHealth}，心态 +8）`
               : `你在全班呐喊声中拼尽了全力，虽然没能站上最高领奖台开启奥运梦，但收获了满满的体能与青春回忆！（本回合保留已获健康 +${earnedHealth}，心态 +3）`}
           </div>
-          <button class="btn-go" id="sd-finish-btn" style="width:100%;">收下奖牌与回忆 · 回到生活</button>
+          <button class="btn-go" id="sd-finish-btn" style="width:100%;">${champion ? '收下金牌与奥运邀请 · 回到生活' : '收下青春回忆 · 回到生活'}</button>
         </div>
       </div>
     `;

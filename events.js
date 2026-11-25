@@ -95,42 +95,37 @@ export function getMilestoneEventForTurn(state) {
     },
     {
       id: 'ms_grad_12', age: 12, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '小升初放榜与小学毕业成绩单',
-      summary: (() => {
+      build: () => {
         const rep = rollOrGetExamResult(state, 'p6');
         const detail = rep.rows.map(r => `${r.label}${r.score}`).join(' · ');
-        return `【小升初 300 分制成绩单：总分 ${rep.finalScore} 分（${detail}）】满 256 分可升入重点初中实验班（初中单科吸收 ×1.12，并解锁理综/文综）！`;
-      })(),
-      choices: (() => {
-        const rep = rollOrGetExamResult(state, 'p6');
         const strictPenalty = (rep.finalScore < 256 && state.origin.id === 'teacher') ? -6 : (rep.finalScore < 256 && state.origin.id === 'welloff' ? -5 : 0);
-        return [
-          {
-            label: `升入【重点初中实验班】（需小升初≥256分，当前 ${rep.finalScore} 分 · 初中吸收×1.12）`,
-            reqCustom: rep.finalScore >= 256,
-            effects: { setSchoolTier: 'key_mid', mood: 5, exp: 'exp_mid_key', photo: `12岁小升初${rep.finalScore}分·重点实验班`, statusBuff: { id: 'bf_key_class', name: '重点实验班', turns: 6, type: 'pos', desc: '初中单科吸收提速' } }
-          },
-          {
-            label: `升入【片区普通初中】并和同桌互写同学录（同桌亲密 +6，心态 ${3 + strictPenalty >= 0 ? '+' : ''}${3 + strictPenalty}）`,
-            effects: { setSchoolTier: 'normal', friendInt: 6, expr: 2, mood: 3 + strictPenalty, photo: `12岁小升初${rep.finalScore}分·小学毕业照` }
-          }
-        ];
-      })()
+        return {
+          title: '小升初放榜与小学毕业成绩单',
+          summary: `【小升初 300 分制成绩单：总分 ${rep.finalScore} 分（${detail}）】满 256 分可升入重点初中实验班（初中单科吸收 ×1.12，并解锁理综/文综）！`,
+          choices: [
+            {
+              label: `升入【重点初中实验班】（需小升初≥256分，当前 ${rep.finalScore} 分 · 初中吸收×1.12）`,
+              reqCustom: rep.finalScore >= 256,
+              effects: { setSchoolTier: 'key_mid', mood: 5, exp: 'exp_mid_key', photo: `12岁小升初${rep.finalScore}分·重点实验班`, statusBuff: { id: 'bf_key_class', name: '重点实验班', turns: 6, type: 'pos', desc: '初中单科吸收提速' } }
+            },
+            {
+              label: `升入【片区普通初中】并和同桌互写同学录（同桌亲密 +6，心态 ${3 + strictPenalty >= 0 ? '+' : ''}${3 + strictPenalty}）`,
+              effects: { setSchoolTier: 'normal', friendInt: 6, expr: 2, mood: 3 + strictPenalty, photo: `12岁小升初${rep.finalScore}分·小学毕业照` }
+            }
+          ]
+        };
+      }
     },
     {
       id: 'ms_zhongkao_15', age: 15, subTurn: 2, priority: 'P0', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '中考 660 分放榜与高中文理选科',
-      summary: (() => {
-        const rep = rollOrGetExamResult(state, 'zk');
-        const detail = rep.rows.map(r => `${r.label}${r.score}`).join(' · ');
-        return `【15岁中考成绩单：总分 ${rep.finalScore}/660 分（${detail}）】省重点线 580 分、普通高中线 460 分；升入高中同步选定主攻理科或文科！`;
-      })(),
-      choices: (() => {
+      build: () => {
         const rep = rollOrGetExamResult(state, 'zk');
         const zk = rep.finalScore;
+        const detail = rep.rows.map(r => `${r.label}${r.score}`).join(' · ');
         const strictPenalty = (zk < 580 && state.origin.id === 'teacher') ? -6 : (zk < 460 && state.origin.id === 'welloff' ? -5 : 0);
+        let choices;
         if (zk >= 580) {
-          return [
+          choices = [
             {
               label: `录取【省重点高中 · 理科实验班】（当前 ${zk} 分 · 高中吸收×1.12，高考考理综300分）`,
               effects: { setSchoolTier: 'key_high', setExamTrack: 'sci', mood: 6, gaokaoBonus: 2, exp: 'exp_high_key', photo: `15岁中考${zk}分·省重点理科`, statusBuff: { id: 'bf_key_high', name: '省重点学风', turns: 8, type: 'pos', desc: '高中专项吸收×1.12' } }
@@ -140,9 +135,8 @@ export function getMilestoneEventForTurn(state) {
               effects: { setSchoolTier: 'key_high', setExamTrack: 'art', mood: 6, gaokaoBonus: 2, exp: 'exp_high_key', photo: `15岁中考${zk}分·省重点文科`, statusBuff: { id: 'bf_key_high', name: '省重点学风', turns: 8, type: 'pos', desc: '高中专项吸收×1.12' } }
             }
           ];
-        }
-        if (zk >= 460) {
-          return [
+        } else if (zk >= 460) {
+          choices = [
             {
               label: `升入【市普通高中 · 理科班】（当前 ${zk} 分 · 高考主攻数学与理综300分）`,
               effects: { setSchoolTier: 'normal', setExamTrack: 'sci', mood: 3 + strictPenalty, friendInt: 3, exp: 'exp_high_norm', photo: `15岁中考${zk}分·普高理科` }
@@ -156,14 +150,20 @@ export function getMilestoneEventForTurn(state) {
               effects: { setSchoolTier: 'vocational', selfCare: 5, dream: 12, cash: 600, mood: 4, exp: 'exp_high_voc', photo: `15岁中考${zk}分·特长路线` }
             }
           ];
+        } else {
+          choices = [
+            {
+              label: `进入【职高 / 艺体特长班】（中考 ${zk} 分未达普高线 · 自理 +6，梦想专长 +12，补贴 +¥600）`,
+              effects: { setSchoolTier: 'vocational', selfCare: 6, dream: 12, cash: 600, mood: 3 + strictPenalty, exp: 'exp_high_voc', photo: `15岁中考${zk}分·职高特长` }
+            }
+          ];
         }
-        return [
-          {
-            label: `进入【职高 / 艺体特长班】（中考 ${zk} 分未达普高线 · 自理 +6，梦想专长 +12，补贴 +¥600）`,
-            effects: { setSchoolTier: 'vocational', selfCare: 6, dream: 12, cash: 600, mood: 3 + strictPenalty, exp: 'exp_high_voc', photo: `15岁中考${zk}分·职高特长` }
-          }
-        ];
-      })()
+        return {
+          title: '中考 660 分放榜与高中文理选科',
+          summary: `【15岁中考成绩单：总分 ${zk}/660 分（${detail}）】省重点线 580 分、普通高中线 460 分；升入高中同步选定主攻理科或文科！`,
+          choices
+        };
+      }
     },
     {
       id: 'ms_parttime_16', age: 16, subTurn: 2, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
@@ -177,19 +177,22 @@ export function getMilestoneEventForTurn(state) {
     },
     {
       id: 'ms_mock_17', age: 17, subTurn: 3, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
-      title: '高考百日誓师与高三一模成绩单',
-      summary: (() => {
+      cond: () => state.schoolTier !== 'vocational',
+      build: () => {
         const ep = getStudentExamPreview(state, []);
         const rowsTxt = ep ? ep.paper.rows.map(r => `${r.label}${r.L}~${r.U}`).join(' · ') : '';
         const lo = ep ? ep.curRange[0] : 500;
         const hi = ep ? ep.curRange[1] : 530;
         const tierTxt = hi >= 680 ? '冲刺清北线(680)' : hi >= 620 ? '冲刺985名校线(620)' : hi >= 500 ? '主流本科线(500)' : '专科区间(抓紧补弱)';
-        return `【高三一模预估：${lo}~${hi}/750 分（${rowsTxt}）】当前处于${tierTxt}，距 18 岁高考仅剩最后 2 季！`;
-      })(),
-      choices: [
-        { label: '立下冲刺军令状猛攻弱科（全科扎实度 +3，留存冲刺特招资格，疲劳 +2）', effects: { subjBoost: { chn: 3, math: 3, eng: 3, sci: 3, art: 3 }, fatigue: 2, exp: 'exp_gaokao_sprint', statusBuff: { id: 'bf_sprint', name: '考前手感', turns: 2, type: 'pos', desc: '冲刺吸收效率提升' } } },
-        { label: '稳住心态早睡早起收窄发挥波动（心态 +8，疲劳 -4，健康 +2）', effects: { mood: 8, fatigue: -4, health: 2 } }
-      ]
+        return {
+          title: '高考百日誓师与高三一模成绩单',
+          summary: `【高三一模预估：${lo}~${hi}/750 分（${rowsTxt}）】当前处于${tierTxt}，距 18 岁高考仅剩最后 2 季！`,
+          choices: [
+            { label: '立下冲刺军令状猛攻弱科（全科扎实度 +3，留存冲刺特招资格，疲劳 +2）', effects: { subjBoost: { chn: 3, math: 3, eng: 3, sci: 3, art: 3 }, fatigue: 2, exp: 'exp_gaokao_sprint', statusBuff: { id: 'bf_sprint', name: '考前手感', turns: 2, type: 'pos', desc: '冲刺吸收效率提升' } } },
+            { label: '稳住心态早睡早起收窄发挥波动（心态 +8，疲劳 -4，健康 +2）', effects: { mood: 8, fatigue: -4, health: 2 } }
+          ]
+        };
+      }
     },
     {
       id: 'ms_pet_25', age: 25, subTurn: 2, priority: 'P1', review_status: 'APPROVED', audit_stage: 'MECHANIC_SHELL',
@@ -217,11 +220,14 @@ export function getMilestoneEventForTurn(state) {
   for (const ev of candidates) {
     if (ev.review_status !== 'APPROVED') continue;
     if (state.triggeredEvents.includes(ev.id)) continue;
+    if (ev.age !== state.age || ev.subTurn !== state.subTurn) continue;
     if (ev.cond && !ev.cond()) continue;
-    if (ev.age === state.age && ev.subTurn === state.subTurn) {
-      state.triggeredEvents.push(ev.id);
-      return ev;
+    state.triggeredEvents.push(ev.id);
+    if (typeof ev.build === 'function') {
+      const built = ev.build();
+      return { ...ev, ...built };
     }
+    return ev;
   }
   return null;
 }
@@ -825,7 +831,12 @@ export function applyEventChoiceEffects(state, choice) {
       }
     }
   }
-  if (ef.setSchoolTier) state.schoolTier = ef.setSchoolTier;
+  if (ef.setSchoolTier) {
+    state.schoolTier = ef.setSchoolTier;
+    if (ef.setSchoolTier === 'vocational' && state.dreams?.d_tsinghua && state.dreams.d_tsinghua.stage > 0 && state.dreams.d_tsinghua.stage < 4) {
+      state.dreams.d_tsinghua.pausedForVocational = true;
+    }
+  }
   if (ef.setExamTrack) state.examTrack = ef.setExamTrack;
   if (ef.pro) { state.stats.pro = clamp(state.stats.pro + ef.pro); state.usedThisYear.pro = true; }
   if (ef.expr) { state.stats.expr = clamp(state.stats.expr + ef.expr); state.usedThisYear.expr = true; }

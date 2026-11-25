@@ -36,17 +36,17 @@ export function seededInt(seedStr, min, max) {
   return min + Math.floor(u * (max - min + 1));
 }
 
-// 三阶当期教材深度上限 D（小学 62 -> 初中 80 -> 高中 100）
-export function getStageTextbookCap(age, subTurn = 1) {
-  if (age < 12 || (age === 12 && subTurn <= 2)) return 62;
-  if (age < 15 || (age === 15 && subTurn <= 2)) return 80;
+// 三阶当期教材深度上限 D（小学 6-12岁=62 -> 初中 13-15岁=80 -> 高中 16-18岁=100）
+export function getStageTextbookCap(age) {
+  if (age <= 12) return 62;
+  if (age <= 15) return 80;
   return 100;
 }
 
-export function getStudentStageKey(age, subTurn = 1) {
-  if (age < 12 || (age === 12 && subTurn <= 2)) return 'p6';
-  if (age < 15 || (age === 15 && subTurn <= 2)) return 'zk';
-  if (age < 18 || (age === 18 && subTurn <= 2)) return 'gk';
+export function getStudentStageKey(age) {
+  if (age <= 12) return 'p6';
+  if (age <= 15) return 'zk';
+  if (age <= 18) return 'gk';
   return 'adult';
 }
 
@@ -110,14 +110,84 @@ export function ensureExamState(s) {
   if (s.usedThisYear && typeof s.usedThisYear.numLogic !== 'boolean') s.usedThisYear.numLogic = false;
   if (s.halfProgress && typeof s.halfProgress.numLogic !== 'number') s.halfProgress.numLogic = 0;
 
-  if (s.child) ensureChildExamProfile(s);
+  if (s.child && (s.age - s.child.bornAge) >= 6) ensureChildExamProfile(s);
   return s;
 }
 
 export function syncVisibleAcademicStats(s) {
   if (!s?.statsRaw) return;
-  s.stats.knowledge = Math.round(clampVal(s.statsRaw.knowledge, 0, 100));
-  s.stats.numLogic = Math.round(clampVal(s.statsRaw.numLogic, 0, 100));
+  const maxCap = s.age <= 18 ? getStageTextbookCap(s.age) : 100;
+  s.statsRaw.knowledge = clampVal(s.statsRaw.knowledge, 0, maxCap);
+  s.statsRaw.numLogic = clampVal(s.statsRaw.numLogic, 0, maxCap);
+  s.stats.knowledge = Math.round(s.statsRaw.knowledge);
+  s.stats.numLogic = Math.round(s.statsRaw.numLogic);
+}
+
+// P1-01 / P1-02 / P1-05：直白学习单格统一结算（一次主轴增量 + 全覆盖对应学科，防重复叠主轴与漏涨英语）
+export function applyDirectAcademicAction(state, mode, opts = {}) {
+  ensureExamState(state);
+  const D = getStageTextbookCap(state.age);
+  const snap = makeStudentSnapshotFromState(state);
+  const isLowMood = snap.mood < 30;
+  const exemptMood = snap.originId === 'working' || snap.scholarTier >= 2;
+  const e = (isLowMood && !exemptMood) ? 0.5 : 1.0;
+  const cSchool = (snap.schoolTier === 'key_mid' || snap.schoolTier === 'key_high') ? 1.12 : 1.0;
+  const flowMult = opts.doubleFlow ? 1.8 : 1.0;
+  const soloBoost = opts.solo && snap.hasSoloHex ? 1.2 : 1.0;
+  const buffBoost = snap.hasStudyBuff ? 1.08 : 1.0;
+
+  const oldLit = state.statsRaw.knowledge;
+  const oldNum = state.statsRaw.numLogic;
+  const gainP = (v) => (v < 65 ? 2.0 : 1.45) * e * flowMult * soloBoost;
+  const boostSubj = (sk, base, paid) => {
+    const oldS = state.subjects[sk] ?? 20;
+    const paidB = (paid && oldS < 85) ? 1.0 : 0;
+    state.subjects[sk] = Math.min(D, oldS + (base + paidB) * e * cSchool * buffBoost * flowMult);
+  };
+
+  if (mode === 'lit') {
+    state.statsRaw.knowledge = Math.min(D, oldLit + gainP(oldLit));
+    boostSubj('chn', 4.5, false);
+    boostSubj('eng', 4.2, false);
+    if (state.age >= 13) boostSubj('art', 4.5, false);
+    state.usedThisYear.knowledge = true;
+  } else if (mode === 'num') {
+    state.statsRaw.numLogic = Math.min(D, oldNum + gainP(oldNum));
+    boostSubj('math', 4.5, false);
+    boostSubj('eng', 1.8, false);
+    if (state.age >= 13) boostSubj('sci', 4.5, false);
+    state.usedThisYear.numLogic = true;
+  } else if (mode === 'tutor') {
+    // 付费补习：文理双提但严守寒门公平红线（低投入富裕 <620，单项 >=85 无额外加速）
+    state.statsRaw.knowledge = Math.min(D, oldLit + gainP(oldLit) * 0.55);
+    state.statsRaw.numLogic = Math.min(D, oldNum + gainP(oldNum) * 0.55);
+    boostSubj('chn', 3.4, true);
+    boostSubj('math', 3.4, true);
+    boostSubj('eng', 3.4, true);
+    if (state.age >= 13) {
+      boostSubj('art', 3.4, true);
+      boostSubj('sci', 3.4, true);
+    }
+    state.usedThisYear.knowledge = true;
+    state.usedThisYear.numLogic = true;
+  } else if (mode === 'sprint') {
+    state.statsRaw.knowledge = Math.min(D, oldLit + gainP(oldLit) * 0.65);
+    state.statsRaw.numLogic = Math.min(D, oldNum + gainP(oldNum) * 0.65);
+    boostSubj('chn', 4.6, false);
+    boostSubj('math', 4.6, false);
+    boostSubj('eng', 4.4, false);
+    if (state.age >= 13) {
+      boostSubj('art', 4.6, false);
+      boostSubj('sci', 4.6, false);
+    }
+    state.usedThisYear.knowledge = true;
+    state.usedThisYear.numLogic = true;
+  }
+
+  syncVisibleAcademicStats(state);
+  const dLit = +(state.statsRaw.knowledge - oldLit).toFixed(1);
+  const dNum = +(state.statsRaw.numLogic - oldNum).toFixed(1);
+  return { dLit, dNum, D, capped: dLit < 0.05 && dNum < 0.05 };
 }
 
 // 自动挑选当前短板或本学段未满上限的科目
@@ -267,9 +337,9 @@ export function calcPeScoreInterval(snap) {
   const overFat = snap.fatigue >= (snap.fatigueLimit || 20);
   const delta = (snap.mood < 30 ? 0.02 : 0) + (overFat ? 0.04 : 0);
   const mu = 0.36 + 0.64 * clampVal(snap.health / 82, 0, 1) - delta;
-  const L = Math.max(0, Math.min(50, Math.ceil(50 * mu - 1.5)));
-  const U = Math.max(L, Math.min(50, Math.floor(50 * mu + 1.5)));
-  return { subjKey: 'pe', label: '体育', full: 50, X: snap.health, S: snap.health, L, U };
+  const L = Math.max(0, Math.min(40, Math.ceil(40 * mu - 1.5)));
+  const U = Math.max(L, Math.min(40, Math.floor(40 * mu + 1.5)));
+  return { subjKey: 'pe', label: '体育', full: 40, X: snap.health, S: snap.health, L, U };
 }
 
 function sampleTriangular(seedPrefix, L, U) {
@@ -281,7 +351,7 @@ function sampleTriangular(seedPrefix, L, U) {
   return L + I + J;
 }
 
-// 评估整张考卷（小升初 p6: 300分 / 中考 zk: 660分 / 高考 gk: 750分）
+// 评估整张考卷（小升初 p6: 300分 / 中考 zk: 660分 [120/120/120/100/160/40] / 高考 gk: 750分）
 export function evaluateExamPaper(snap, examType = 'gk', attemptIdx = 0) {
   const rows = [];
   if (examType === 'p6') {
@@ -289,21 +359,11 @@ export function evaluateExamPaper(snap, examType = 'gk', attemptIdx = 0) {
     rows.push(calcSubjectScoreInterval('math', snap, 62, 100));
     rows.push(calcSubjectScoreInterval('eng', snap, 62, 100));
   } else if (examType === 'zk') {
-    rows.push(calcSubjectScoreInterval('chn', snap, 80, 150));
-    rows.push(calcSubjectScoreInterval('math', snap, 80, 150));
-    rows.push(calcSubjectScoreInterval('eng', snap, 80, 150));
-    // 文理合卷 160 分（政史地 80 + 物化生 80 镜像对称合并展示，也可分列）
-    const artHalf = calcSubjectScoreInterval('art', snap, 80, 80);
-    const sciHalf = calcSubjectScoreInterval('sci', snap, 80, 80);
-    rows.push({
-      subjKey: 'zk_comp',
-      label: '文理合卷',
-      full: 160,
-      X: +((artHalf.X + sciHalf.X) / 2).toFixed(1),
-      S: +((artHalf.S + sciHalf.S) / 2).toFixed(1),
-      L: artHalf.L + sciHalf.L,
-      U: artHalf.U + sciHalf.U
-    });
+    rows.push(calcSubjectScoreInterval('chn', snap, 80, 120));
+    rows.push(calcSubjectScoreInterval('math', snap, 80, 120));
+    rows.push(calcSubjectScoreInterval('eng', snap, 80, 120));
+    rows.push(calcSubjectScoreInterval('art', snap, 80, 100));
+    rows.push(calcSubjectScoreInterval('sci', snap, 80, 160));
     rows.push(calcPeScoreInterval(snap));
   } else {
     const trk = snap.examTrack || 'sci';
@@ -341,12 +401,16 @@ export function evaluateExamPaper(snap, examType = 'gk', attemptIdx = 0) {
   };
 }
 
-// 一次性落盘获取考试结果（防重复抽签）
+// 一次性落盘获取考试结果（防重复抽签；同时拦截旧版提前缓存的异常历史！）
 export function rollOrGetExamResult(state, examType) {
   ensureExamState(state);
-  if (state.examHistory[examType]) return state.examHistory[examType];
+  const minValidAge = examType === 'p6' ? 12 : examType === 'zk' ? 15 : 18;
+  const cached = state.examHistory[examType];
+  if (cached && (cached.takenAge || 0) >= minValidAge) return cached;
   const snap = makeStudentSnapshotFromState(state);
   const res = evaluateExamPaper(snap, examType, 0);
+  res.takenAge = state.age;
+  res.takenSubTurn = state.subTurn;
   state.examHistory[examType] = res;
   return res;
 }

@@ -1,16 +1,16 @@
 // 《这辈子 2.0》命运海克斯 V4 —— 7 节点人生词条构筑系统（含 5 张追梦专属命定卡 + 全卡大白话五层信息 + 详情举例）
 // 严格遵循纯中文无表情符号与直白可读规范。
 
-export const HEX_NODES = [6, 12, 18, 22, 30, 40, 55];
+export const HEX_NODES = [6, 12, 18, 25, 35, 50, 65];
 
 export const HEX_NODE_META = {
   6:  { title: '6 岁 · 童年启蒙觉醒', sub: '选一张命运卡陪伴长大，这辈子一直有效', weights: { silver: 0.78, gold: 0.22, prism: 0.00 } },
   12: { title: '12 岁 · 少年初长觉醒', sub: '青春期方向渐显，升级卡开始出现', weights: { silver: 0.50, gold: 0.50, prism: 0.00 } },
   18: { title: '18 岁 · 成人礼命运觉醒', sub: '首次解锁珍珠棱彩卡，改写人生走向', weights: { silver: 0.00, gold: 0.68, prism: 0.32 } },
-  22: { title: '22 岁 · 毕业入世觉醒', sub: '步入社会，两派合一卡与追梦专属卡登场', weights: { silver: 0.00, gold: 0.70, prism: 0.30 } },
-  30: { title: '30 岁 · 而立之年觉醒', sub: '事业安家定型期，高概率刷出高阶好卡', weights: { silver: 0.00, gold: 0.55, prism: 0.45 } },
-  40: { title: '40 岁 · 不惑破局觉醒', sub: '稳住家庭与健康，终极升级与棱彩高发', weights: { silver: 0.00, gold: 0.38, prism: 0.62 } },
-  55: { title: '55 岁 · 金色晚年觉醒', sub: '收官强化，冲刺圆满无憾的下半生', weights: { silver: 0.00, gold: 0.45, prism: 0.55 } }
+  25: { title: '25 岁 · 初入社会觉醒', sub: '站稳职场，两派合一卡与追梦专属卡登场', weights: { silver: 0.00, gold: 0.70, prism: 0.30 } },
+  35: { title: '35 岁 · 中年破局觉醒', sub: '安家立业关键期，高概率刷出高阶好卡', weights: { silver: 0.00, gold: 0.55, prism: 0.45 } },
+  50: { title: '50 岁 · 半百转场觉醒', sub: '稳住家庭与健康，终极升级与棱彩高发', weights: { silver: 0.00, gold: 0.38, prism: 0.62 } },
+  65: { title: '65 岁 · 金色晚年觉醒', sub: '收官强化，冲刺圆满无憾的下半生', weights: { silver: 0.00, gold: 0.45, prism: 0.55 } }
 };
 
 export const HEX_BONDS = {

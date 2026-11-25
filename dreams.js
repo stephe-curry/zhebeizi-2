@@ -90,28 +90,24 @@ export const DREAM_IDS = Object.keys(DREAM_CATALOG);
 
 export function ensureDreamState(state) {
   if (!state) return state;
-  if (!state.dreams) {
-    const startBonus = state.talent?.id === 't_dream' ? 8 : (state.talent?.id === 't_art' ? 10 : 0);
+  if (!state.dreams || typeof state.dreams !== 'object') {
     state.dreams = {};
-    for (const id of DREAM_IDS) {
-      state.dreams[id] = {
-        id,
-        stage: 0,       // 0:未偶遇 1:启蒙火种 2:兴趣萌芽 3:认真追逐 4:已收束
-        outcome: null,  // null | 'success' | 'near_miss' | 'pivot' | 'echo'
-        xp: startBonus,
-        trains: 0,
-        retries: 0,
-        songsCount: 0,
-        songName: '《慢一点回家》',
-        medQualified: false,
-        qualified: false,
-        seenSlices: []
-      };
-    }
   }
+  const startBonus = state.talent?.id === 't_dream' ? 8 : (state.talent?.id === 't_art' ? 10 : 0);
   for (const id of DREAM_IDS) {
-    if (state.dreams[id] && typeof state.dreams[id].qualified !== 'boolean') {
-      state.dreams[id].qualified = false;
+    if (!state.dreams[id] || typeof state.dreams[id] !== 'object') {
+      state.dreams[id] = {
+        id, stage: 0, outcome: null, xp: startBonus, trains: 0, retries: 0,
+        songsCount: 0, songName: '《慢一点回家》', medQualified: false, qualified: false, seenSlices: []
+      };
+    } else {
+      if (!state.dreams[id].id) state.dreams[id].id = id;
+      if (typeof state.dreams[id].stage !== 'number') state.dreams[id].stage = 0;
+      if (typeof state.dreams[id].xp !== 'number') state.dreams[id].xp = startBonus;
+      if (typeof state.dreams[id].trains !== 'number') state.dreams[id].trains = 0;
+      if (typeof state.dreams[id].retries !== 'number') state.dreams[id].retries = 0;
+      if (typeof state.dreams[id].qualified !== 'boolean') state.dreams[id].qualified = false;
+      if (!Array.isArray(state.dreams[id].seenSlices)) state.dreams[id].seenSlices = [];
     }
   }
   if (!state.itemStories) state.itemStories = {};
@@ -131,6 +127,7 @@ export function syncLegacyDreamFields(state) {
   let maxXp = 0;
   const serious = [];
   for (const d of list) {
+    if (!d || !DREAM_CATALOG[d.id]) continue;
     if (d.xp > maxXp) maxXp = d.xp;
     if (d.stage === 3 || (d.stage === 4 && d.outcome === 'success')) {
       serious.push({ id: d.id, name: DREAM_CATALOG[d.id].name });
@@ -138,6 +135,7 @@ export function syncLegacyDreamFields(state) {
   }
   if (!serious.length) {
     for (const d of list) {
+      if (!d || !DREAM_CATALOG[d.id]) continue;
       if (d.stage === 2 || d.stage === 1) {
         serious.push({ id: d.id, name: DREAM_CATALOG[d.id].name });
       }
@@ -157,6 +155,12 @@ export function getSeriousDreamCap(state) {
   return getBondTier(state, 'dream') >= 4 ? 5 : 2;
 }
 
+function isTsinghuaActiveAllowed(state) {
+  if (state.age <= 15) return false;
+  if (state.age <= 18) return state.schoolTier !== 'vocational';
+  return Boolean(state.gaokaoDone && state.university && (state.university.tier <= 3 || state.upgradedToBachelor));
+}
+
 // 动态生成排程抽屉里的专属追梦贴纸（未偶遇任何火种前绝不硬塞假按钮！）
 export function getDreamScheduleActions(state) {
   ensureDreamState(state);
@@ -169,10 +173,21 @@ export function getDreamScheduleActions(state) {
     const d = state.dreams[id];
     const meta = DREAM_CATALOG[id];
     if (d.stage < 1 || d.stage >= 4) continue;
+    // P0-03：职校分流期严禁显示任何清北贴纸
+    if (id === 'd_tsinghua' && state.age >= 16 && state.age <= 18 && state.schoolTier === 'vocational') continue;
+    // P1-12：外科医途在成年后需本科及以上学历才显示临床轮转
+    if (id === 'd_surgeon' && state.age >= 19 && state.gaokaoDone && state.university && state.university.tier > 2) continue;
     // 19 岁成年后：如果已经认真追逐满上限，未立志的业余兴趣自动收拢不占面板宽度
     if (!isChild && getSeriousDreamCount(state) >= getSeriousDreamCap(state) && d.stage < 3) continue;
 
-    const spec = d.stage >= 3 ? meta.actionPro : meta.actionHobby;
+    // P0-02：初中阶段不得展示「清北攻坚」，仅展示「钻研重点压轴题」
+    const useProSpec = d.stage >= 3 && (id !== 'd_tsinghua' || isTsinghuaActiveAllowed(state));
+    const rawSpec = useProSpec ? meta.actionPro : meta.actionHobby;
+    const spec = (id === 'd_tsinghua' && state.age <= 15)
+      ? { ...rawSpec, name: '钻研重点压轴题', short: '钻研难题' }
+      : (id === 'd_hurdle' && state.olympicSport?.name)
+        ? { ...rawSpec, name: `${state.olympicSport.name}${d.stage >= 3 ? '省队集训' : '校队特训'}`, short: d.stage >= 3 ? '省队集训' : '校队特训' }
+        : rawSpec;
     const baseGain = d.stage < 3
       ? (d.xp < 40 ? 3 : 2)
       : (d.xp < 65 ? 3 : d.xp < 85 ? 2 : 1);
@@ -242,7 +257,15 @@ export function executeDreamAction(state, actionId, opts = {}) {
 
   // 副属性真实反哺（追梦不是纯刷虚空数值，而是反哺人生能力！）
   if (id === 'd_hurdle') state.stats.health = clamp(state.stats.health + (hasHex(state, 'hx_hurdle_wind') ? 2 : 1));
-  if (id === 'd_tsinghua') state.stats.knowledge = clamp(state.stats.knowledge + 1);
+  if (id === 'd_tsinghua') {
+    if (state.age <= 18 && state.statsRaw) {
+      const capD = state.age <= 12 ? 62 : state.age <= 15 ? 80 : 100;
+      state.statsRaw.knowledge = Math.min(capD, state.statsRaw.knowledge + 1);
+      state.stats.knowledge = Math.round(state.statsRaw.knowledge);
+    } else {
+      state.stats.knowledge = clamp(state.stats.knowledge + 1);
+    }
+  }
   if (id === 'd_singer') {
     state.stats.expr = clamp(state.stats.expr + 1);
     if ((d.trains === 1 || d.trains % 3 === 0) && d.songsCount < 10) d.songsCount++;
@@ -272,13 +295,11 @@ export function rollDreamLifecycleEvent(state, draftIds = []) {
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
     const meta = DREAM_CATALOG[id];
-    if (d.stage !== 3) continue;
-    // 清北：18 岁之前走高考志愿直通，19 岁之后若高考未进 u1 则走「另一所大学的书桌 · 考研清北复试终面」
-    if (id === 'd_tsinghua' && !state.gaokaoDone) continue;
-    // 万人场歌手：歌单必须攒满至少 3 首原创歌（对齐原稿《歌单的第三首》）
+    if (d.stage !== 3 || d.outcome === 'success') continue;
+    if (id === 'd_tsinghua' && (!state.gaokaoDone || !isTsinghuaActiveAllowed(state))) continue;
+    if (id === 'd_hurdle' && !d.qualified) continue;
     if (id === 'd_singer' && (d.songsCount || 0) < 3) continue;
-    // 外科主刀：必须已通过「执业医师实操考」取得合法执业资格（对齐原稿 SUR18/SUR28）
-    if (id === 'd_surgeon' && !d.qualified) continue;
+    if (id === 'd_surgeon' && (!d.qualified || !state.university || state.university.tier > 2)) continue;
 
     const readyByXp = d.xp >= 68 || (state.age >= meta.climaxMaxAge - 1 && d.xp >= 52);
     const inAge = state.age >= meta.climaxMinAge && state.age <= meta.climaxMaxAge;
@@ -288,20 +309,27 @@ export function rollDreamLifecycleEvent(state, draftIds = []) {
     }
   }
 
-  // 优先级 A.5（新增关键进阶幕）：已立志（Stage 3）且 xp>=42 -> 触发「青训试训 / 省赛达标 / 统测压轴 / 千人巡演 / 执业医考」实操晋级！
+  // 优先级 A.5：已立志（Stage 3）且 xp>=42 -> 触发晋级选拔（严格学段/学籍/年龄窗口门禁）
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
+    const meta = DREAM_CATALOG[id];
     if (d.stage !== 3 || d.seenSlices.includes('qualifier')) continue;
-    if (id === 'd_surgeon' && state.age < 21) continue; // 临床上台与医考需大三见习以后
+    if (state.age > meta.climaxMaxAge) continue;
+    if (id === 'd_tsinghua' && (!isTsinghuaActiveAllowed(state) || state.age < 17)) continue;
+    if (id === 'd_surgeon' && (state.age < 21 || !state.university || state.university.tier > 2)) continue;
     if (d.xp >= 42) {
       return buildDreamQualifierEvent(state, id);
     }
   }
 
-  // 优先级 B：认真追逐中（Stage 3）遇到现实瓶颈与高压试炼（含海克斯金色破局选项！）
+  // 优先级 B：认真追逐中（Stage 3）遇到现实瓶颈与高压试炼
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
+    const meta = DREAM_CATALOG[id];
     if (d.stage === 3 && d.xp >= 50 && !d.seenSlices.includes('adversity')) {
+      if (state.age > meta.climaxMaxAge) continue;
+      if (id === 'd_tsinghua' && !isTsinghuaActiveAllowed(state)) continue;
+      if (id === 'd_surgeon' && state.age < 19) continue;
       return buildDreamAdversityEvent(state, id);
     }
   }
@@ -309,7 +337,11 @@ export function rollDreamLifecycleEvent(state, draftIds = []) {
   // 优先级 C：兴趣萌芽（Stage 2）练过足够次数且 xp>=32 -> 分水岭「要不要动真格去追？」
   for (const id of DREAM_IDS) {
     const d = state.dreams[id];
+    const meta = DREAM_CATALOG[id];
     if (d.stage === 2 && d.xp >= 32 && state.age >= 14 && !d.seenSlices.includes('commit')) {
+      if (state.age > meta.climaxMaxAge) continue;
+      if (id === 'd_tsinghua' && !isTsinghuaActiveAllowed(state)) continue;
+      if (id === 'd_surgeon' && state.age < 18) continue;
       if (state.age >= 19 && getSeriousDreamCount(state) >= getSeriousDreamCap(state)) continue;
       return buildDreamCommitEvent(state, id);
     }

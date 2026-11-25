@@ -755,10 +755,11 @@ export function openNostalgiaLinkGame(container, state, opts = {}, onFinish) {
 export function openBellDashGame(container, state, opts = {}, onFinish) {
   const W = 342, H = 228;
   const isHurdleClimax = opts.climaxDreamId === 'd_hurdle' || opts.qualifierDreamId === 'd_hurdle';
+  const sportName = state?.olympicSport?.name || '田径';
   const titleText = opts.climaxDreamId === 'd_hurdle'
-    ? '大赛十栏决赛 · 冲线决胜'
+    ? `奥运${sportName}决赛 · 巅峰冲刺`
     : opts.qualifierDreamId === 'd_hurdle'
-      ? '省田径锦标赛 · 十栏达标选拔'
+      ? `省田径锦标赛 · ${sportName}达标选拔`
       : '下课铃狂奔 · 三道冲食堂';
 
   let lane = 1; // 0, 1, 2
@@ -782,7 +783,7 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       </div>
       <div class="arc-hud">
         <span>剩余：<b id="bd-time">20.0s</b></span>
-        <span>完美跨栏：<b id="bd-hurdle">0</b></span>
+        <span>${isHurdleClimax ? '完美发力' : '完美跨栏'}：<b id="bd-hurdle">0</b></span>
         <span>得分：<b id="bd-score">0</b></span>
       </div>
       <div class="arc-canvas-wrap">
@@ -790,7 +791,7 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       </div>
       <div class="arc-ctrl-3">
         <button class="btn secondary" id="bd-left">左变道</button>
-        <button class="btn primary" id="bd-jump">起跳跨栏 / 冲刺</button>
+        <button class="btn primary" id="bd-jump">${isHurdleClimax ? '爆发冲刺 / 发力' : '起跳跨栏 / 冲刺'}</button>
         <button class="btn secondary" id="bd-right">右变道</button>
       </div>
     </div>
@@ -821,7 +822,7 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       mood: grade === 'S' ? 4 : grade === 'A' ? 3 : 2,
       cash: !isHurdleClimax && grade === 'S' ? 40 : 0,
       note: isHurdleClimax
-        ? `跨栏决赛完美过栏 ${hurdlesCleared} 架，冲线得分 ${finalScore}（${grade} 级）！`
+        ? `奥运${sportName}决赛完美发力 ${hurdlesCleared} 次，冲线得分 ${finalScore}（${grade} 级）！`
         : `一路狂奔冲进食堂窗口，得分 ${finalScore}（${grade} 级）！`
     });
   }

@@ -3479,16 +3479,22 @@ html, body {
 }
 
 .v5-full-stage .hex-btn.v5-frosted {
-  top: 132px !important;
+  top: 150px !important;
 }
 .v5-top-right-pills {
   position: absolute;
-  top: 132px;
+  top: 150px;
   right: 10px;
   z-index: 24;
   display: flex;
   align-items: center;
   gap: 5px;
+}
+/* P2-02：展开排程抽屉时主角缩小并向下对齐安全区，绝不被顶栏遮住头顶 */
+.v5-full-stage.drawer-open .hero-anchor.v5-hero {
+  transform: translateX(-50%) scale(0.72) !important;
+  transform-origin: center bottom;
+  bottom: 58% !important;
 }
 .wish-btn.v5-frosted {
   display: inline-flex;

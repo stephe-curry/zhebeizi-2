@@ -60,6 +60,7 @@ const appEl = document.getElementById('app');
 let state = null;
 let sprites = { male: null, female: null };
 let activeTab = 'home'; // 'home' | 'assets' | 'social' | 'album'
+let memorialPreviewMode = false; // P0-05：预览纪念册仅只读，绝不结案或清档
 let drawerOpen = false;
 let inspectedId = null; // 方案 A：单行预览条当前聚焦的行动卡 ID
 let moreMenuOpen = false; // 抽屉右上角 ··· 浮层菜单
@@ -191,7 +192,7 @@ function getGoalMeta(s) {
     };
   }
   if (s.age < 55) {
-    return { text: `平衡职级（L${s.jobLevel}）、伴侣亲密与健康，稳渡中年风浪`, pct: null, label: '' };
+    return { text: `平衡职级（L${s.jobLevel}）、伴侣好感度与健康，稳渡中年风浪`, pct: null, label: '' };
   }
   if (!s.elderCircle && !(s.relations.partner?.married)) {
     return { text: `60 岁后去跳广场舞建老年圈，抵消退休孤独感`, pct: null, label: '' };
@@ -1212,6 +1213,7 @@ function renderSocialTab(budget) {
           ${state.age >= 19 && !state.relations.partner ? `<button class="pill-btn primary" id="t-romance-hub">${pxIcon('heart', 14)} 相亲角与缘分</button>` : ''}
           ${state.relations.partner && state.age >= 19 ? `<button class="pill-btn soft" id="t-romance-hub">${pxIcon('heart', 14)} 找${state.relations.partner.name}聊天</button>` : ''}
           ${state.relations.partner && !state.relations.partner.married && state.age >= 22 ? `<button class="pill-btn primary" id="t-marry">${pxIcon('heart', 14)} 谈婚论嫁</button>` : ''}
+          ${state.university?.tier === 4 && !state.upgradedToBachelor && state.age >= 20 ? `<button class="pill-btn primary" id="t-zsb">${pxIcon('study', 14)} 报考专升本 (需学识≥60)</button>` : ''}
           ${state.relations.partner && !state.relations.partner.married ? `<button class="pill-btn soft" id="t-breakup" style="color:#b91c1c;">主动提分手</button>` : ''}
           ${state.relations.partner?.married && !state.child && !state.choseDink ? `<button class="pill-btn soft" id="t-kid">${pxIcon('baby', 14)} 生娃 / 丁克抉择</button>` : ''}
           ${budget.babyLock && state.relations.parents.intimacy >= 60 ? `<button class="pill-btn soft" id="t-help">${pxIcon('parents', 14)} 请父母代班(释1格)</button>` : ''}
@@ -1423,6 +1425,18 @@ function bindMainEvents(actions, budget, cornerSticker) {
         showToast(act.disabledReason ? `「${act.name}」${act.disabledReason}` : `「${act.name}」本年次数已用完`);
         return;
       }
+      if (id === 'study_tutor') {
+        const queuedTutor = draft.filter(x => x === 'study_tutor').length;
+        if (state.tutoredThisYear + queuedTutor >= state.origin.eduLimit) {
+          showToast(`本年补习次数已排满（上限 ${state.origin.eduLimit} 次）`);
+          return;
+        }
+      }
+      const queuedCash = draft.reduce((sum, x) => sum + ((actions.find(a => a.id === x)?.costCash) || 0), 0);
+      if (act.costCash > 0 && queuedCash + act.costCash > state.cash) {
+        showToast(`现金不足，当前余额 ¥${Math.round(state.cash)}，排满需 ¥${queuedCash + act.costCash}`);
+        return;
+      }
       const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
       if (draft.length < budget.available) {
         draft.push(id);
@@ -1567,6 +1581,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     const afterEvents = () => {
       if (res.needSportsDay) {
         openSportsDayTournament(state, mountOverlay, clearOverlay, () => {
+          clearMandatoryFlag('sports_day');
           saveAutoProgress();
           render();
           afterBreakupCheck();
@@ -1609,6 +1624,18 @@ function bindMainEvents(actions, budget, cornerSticker) {
     render();
     if (msg) showToast(msg);
   });
+  bind('#t-zsb', () => {
+    if ((state.stats.knowledge || 0) < 60) {
+      showToast(`专升本需学识 ≥60（当前 ${state.stats.knowledge}），继续积累后再来！`);
+      return;
+    }
+    state.upgradedToBachelor = true;
+    state.university = { ...state.university, tier: 3, name: `${state.university.name} (专升本)`, baseSalary: 7000 };
+    state.stats.mood = clamp(state.stats.mood + 6);
+    saveAutoProgress();
+    render();
+    showToast('专升本上岸成功！学历升级为本科，解锁更高起薪与考研深造通道！');
+  });
   bind('#t-marry', openMarrySheet);
   bind('#t-kid', openKidSheet);
   bind('#t-help', () => {
@@ -1626,7 +1653,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
       showToast(`与执念温柔和解，已沉淀为终身特质：${meta.pivotTrait}`);
     };
   });
-  bind('#t-memorial', () => { state.ended = true; state.endReason = '手动预览人生纪念册'; render(); });
+  bind('#t-memorial', () => { memorialPreviewMode = true; renderMemorial(true); });
   appEl.querySelectorAll('[data-branch]').forEach(b => {
     b.onclick = () => {
       const a = Number(b.dataset.branch);
@@ -1852,6 +1879,7 @@ function renderIntro() {
     activeTab = 'home'; drawerOpen = false; draft = []; inspectedId = null; moreMenuOpen = false;
     render();
     showToast(`欢迎回来！已恢复 ${state.age} 岁 · 第 ${state.subTurn} 季进度`);
+    resumePendingMandatory();
   });
   bind('#wiz-prev', () => { introStep = Math.max(0, introStep - 1); renderIntro(); });
   bind('#wiz-next', () => { introStep = Math.min(3, introStep + 1); renderIntro(); });
@@ -2220,13 +2248,45 @@ function openCompassSlipModal() {
   });
 }
 
+// P0-04：读档自动恢复尚未完成的强制决策节点（校运会 / 高考志愿 / 毕业择城）
+function clearMandatoryFlag(key) {
+  if (Array.isArray(state?.pendingMandatory)) {
+    state.pendingMandatory = state.pendingMandatory.filter(k => k !== key);
+  }
+}
+function resumePendingMandatory() {
+  if (!state || !Array.isArray(state.pendingMandatory) || !state.pendingMandatory.length) return false;
+  const next = state.pendingMandatory[0];
+  if (next === 'sports_day' && !state.sportsDayDone) {
+    openSportsDayTournament(state, mountOverlay, clearOverlay, () => {
+      clearMandatoryFlag('sports_day');
+      saveAutoProgress(); render(); resumePendingMandatory();
+    });
+    return true;
+  }
+  if (next === 'gaokao' && !state.gaokaoDone) {
+    openGaokaoV3(() => {
+      clearMandatoryFlag('gaokao');
+      saveAutoProgress(); render(); resumePendingMandatory();
+    });
+    return true;
+  }
+  if (next === 'grad' && !state.track) {
+    openGradV3(() => {
+      clearMandatoryFlag('grad');
+      saveAutoProgress(); render(); resumePendingMandatory();
+    });
+    return true;
+  }
+  clearMandatoryFlag(next);
+  return resumePendingMandatory();
+}
+
 function openGaokaoV3(afterDone) {
-  const tsDream = state.dreams?.d_tsinghua;
   const gkRep = rollOrGetExamResult(state, 'gk');
   const score = gkRep.finalScore;
-  const hasSprint = state.experiences.includes('exp_gaokao_sprint')
-    || getBondTier(state, 'scholar') >= 4
-    || ((tsDream?.xp || 0) >= 42);
+  // P1-04：668 特招线仅认正式冲刺经历 exp_gaokao_sprint，杜绝 XP/羁绊旁路
+  const hasSprint = state.experiences.includes('exp_gaokao_sprint');
   const wantsMed = (state.dreams?.d_surgeon?.stage || 0) >= 1;
   const exprBonus = (state.origin.id === 'middle' ? 5 : 0) + (state.talent.id === 't_vision' ? 5 : 0);
 
@@ -2276,20 +2336,23 @@ function openGaokaoV3(afterDone) {
       if (repBtn) {
         repBtn.onclick = () => {
           state.repeatedGaokao = true;
-          state.age = 17;
+          // P1-04：复读不再把年龄倒拨回 17 岁导致重复年结，保留 18 岁第 3 季高四冲刺，19 岁再考
+          state.age = 18;
           state.subTurn = 3;
           state.stats.mood = clamp(state.stats.mood - 8);
           state.examSeed = (state.examSeed || 100000) + 77;
           delete state.examHistory.gk;
+          clearMandatoryFlag('gaokao');
           saveAutoProgress();
           finish();
-          showToast('毅然选择复读一年！继承当前全部学识、数理与四科底子再冲刺 3 季！');
+          showToast('毅然选择高四复读！继承当前全部学识、数理与四科底子再冲刺！');
         };
       }
       host.querySelectorAll('[data-u]').forEach(b => {
         b.onclick = () => {
           const u = UNIVERSITIES.find(x => x.id === b.dataset.u);
           state.university = u; state.gaokaoDone = true; state.gradAge = (state.repeatedGaokao ? 19 : 18) + u.years;
+          clearMandatoryFlag('gaokao');
           if (u.abroad) {
             state.parentSupportLeft = Math.max(0, state.parentSupportLeft - u.cost);
             state.studyAbroadLeft -= u.cost;
@@ -2497,15 +2560,15 @@ function launchArcadeGame(gameId, opts = {}) {
           state.arcadePlayedThisTurn = true;
           if (gameId === 'ring_toss') state.flipGameThisYear++;
           const cashGain = Math.round((res.cash || 0) * boost);
-          const moodGain = (res.mood || 0) + (hasHex(state, 'hx_arcade_pro') ? 2 : 0);
+          const moodGain = Math.round((res.mood || 0) + (hasHex(state, 'hx_arcade_pro') ? 2 : 0));
           state.cash += cashGain;
           state.stats.mood = clamp(state.stats.mood + moodGain);
-          if (res.know) state.stats.knowledge = clamp(state.stats.knowledge + res.know);
-          if (res.expr) state.stats.expr = clamp(state.stats.expr + res.expr);
-          if (res.pro) state.stats.pro = clamp(state.stats.pro + res.pro);
-          if (res.health) state.stats.health = clamp(state.stats.health + res.health);
-          if (res.fatigueDelta) state.stats.fatigue = clamp(state.stats.fatigue + res.fatigueDelta);
-          if (res.familyInt) state.relations.parents.intimacy = clamp(state.relations.parents.intimacy + res.familyInt);
+          if (res.know) state.stats.knowledge = clamp(state.stats.knowledge + Math.round(res.know));
+          if (res.expr) state.stats.expr = clamp(state.stats.expr + Math.round(res.expr));
+          if (res.pro) state.stats.pro = clamp(state.stats.pro + Math.round(res.pro));
+          if (res.health) state.stats.health = clamp(state.stats.health + Math.round(res.health));
+          if (res.fatigueDelta) state.stats.fatigue = clamp(state.stats.fatigue + Math.round(res.fatigueDelta));
+          if (res.familyInt) state.relations.parents.intimacy = clamp(state.relations.parents.intimacy + Math.round(res.familyInt));
           if (res.bonusSnackCard) {
             const unowned = TUCK_CARDS_12.filter(c => !state.snackCards.includes(c));
             if (unowned.length) {
@@ -2853,7 +2916,7 @@ function openLoveSheet() {
 
 function openMarrySheet() {
   const p = state.relations.partner;
-  if (p.intimacy < 60) return showToast(`谈婚论嫁需伴侣亲密 ≥60（当前 ${p.intimacy}）`);
+  if (p.intimacy < 60) return showToast(`谈婚论嫁需伴侣好感度 ≥60（当前 ${p.intimacy}）`);
   mountOverlay(`<div class="sheet-modal"><div class="sheet-box">
     <h3 style="margin:0 0 8px;display:flex;align-items:center;gap:6px;">${pxIcon('heart', 17)} 谈婚论嫁（开启双收入合账）</h3>
     <div style="display:flex;flex-direction:column;gap:7px;">
@@ -2943,10 +3006,13 @@ function openEraNewspaper() {
   </div></div>`, host => { host.querySelector('#n-ok').onclick = clearOverlay; });
 }
 
-// ===== 终章「可分享复古人生纪念册海报」=====
-function renderMemorial() {
-  localStorage.setItem('zhebeizi_cleared', '1');
-  unlockedSelfPick = true;
+// ===== 终章「可分享复古人生纪念册海报」（P0-05：预览模式绝不清档、绝不解锁通关！）=====
+function renderMemorial(isPreview = false) {
+  const preview = Boolean(isPreview || memorialPreviewMode) && !state.ended;
+  if (!preview) {
+    localStorage.setItem('zhebeizi_cleared', '1');
+    unlockedSelfPick = true;
+  }
   const ev = evaluateEnding(state);
   const stageIdx = getSubStageIndex(state.age);
   const bgKey = getBgKey(state.age);
@@ -2970,7 +3036,7 @@ function renderMemorial() {
             <div class="poster-film">${'<i></i>'.repeat(14)}</div>
             <div class="poster-inner">
               <div class="poster-top-meta">
-                <span>《这辈子 2.0》人生纪念册</span>
+                <span>《这辈子 2.0》人生纪念册${preview ? '（预览）' : ''}</span>
                 <span>${birthYear} — ${endYear} · ${state.age}岁</span>
               </div>
 
@@ -2982,9 +3048,9 @@ function renderMemorial() {
                   </div>
                 </div>
                 <div class="poster-title-col">
-                  <span class="poster-seal">终章定格</span>
+                  <span class="poster-seal">${preview ? '阶段预览' : '终章定格'}</span>
                   <h2>${ev.title}</h2>
-                  <div class="poster-reason">${state.endReason}</div>
+                  <div class="poster-reason">${preview ? '当前人生进度实时预览（未结案）' : state.endReason}</div>
                 </div>
               </div>
 
@@ -3020,18 +3086,24 @@ function renderMemorial() {
             <div class="poster-film">${'<i></i>'.repeat(14)}</div>
           </div>
 
-          <!-- 分享 & 人生树回溯 & 开启新一生 -->
+          <!-- 分享 & 人生树回溯 & 返回或开启新一生 -->
           <div class="deed-card">
             <div class="sec-head-row">
-              <span class="sec-title">${pxIcon('film', 16)} 珍藏与人生树回溯</span>
+              <span class="sec-title">${pxIcon('film', 16)} ${preview ? '预览操作' : '珍藏与人生树回溯'}</span>
               <button class="pill-btn soft" id="btn-share-poster" style="height:28px;font-size:11px;">${pxIcon('share', 13)} 复制战绩文案</button>
             </div>
-            <div class="pill-actions" style="margin-bottom:12px;">
-              ${[18, 30, 50].map(a => `<button class="pill-btn" data-rb="${a}" ${state.branches[a] ? '' : 'disabled'}>回到 ${a} 岁</button>`).join('')}
-            </div>
-            <div class="poster-actions">
-              <button class="cta-main" id="btn-restart" style="max-width:250px;width:78%;">开启新的一生（自选出身）</button>
-            </div>
+            ${preview ? `
+              <div class="poster-actions" style="margin-top:8px;">
+                <button class="cta-main" id="btn-back-album" style="max-width:250px;width:78%;">返回相册继续这一生</button>
+              </div>
+            ` : `
+              <div class="pill-actions" style="margin-bottom:12px;">
+                ${[18, 30, 50].map(a => `<button class="pill-btn" data-rb="${a}" ${state.branches[a] ? '' : 'disabled'}>回到 ${a} 岁</button>`).join('')}
+              </div>
+              <div class="poster-actions">
+                <button class="cta-main" id="btn-restart" style="max-width:250px;width:78%;">开启新的一生（自选出身）</button>
+              </div>
+            `}
           </div>
         </div>
         ${toastMsg ? `<div class="toast-ribbon" id="toast-close">${toastMsg}</div>` : ''}
@@ -3040,7 +3112,7 @@ function renderMemorial() {
   `;
 
   const tc = appEl.querySelector('#toast-close');
-  if (tc) tc.onclick = () => { toastMsg = ''; renderMemorial(); };
+  if (tc) tc.onclick = () => { toastMsg = ''; renderMemorial(preview); };
 
   appEl.querySelector('#btn-share-poster').onclick = () => {
     const text = `我在《这辈子 2.0》活到 ${state.age} 岁，达成结局「${ev.title}」（出身${state.origin.name} → 净资产 ¥${fmtMoney(ev.netWorth)}），四维评级：${grades.map(x => `${x.lb}${x.g}`).join(' / ')}`;
@@ -3050,23 +3122,31 @@ function renderMemorial() {
     showToast('复古战绩文案已复制，可直接截图上方海报分享！');
   };
 
-  appEl.querySelectorAll('[data-rb]').forEach(b => {
-    b.onclick = () => {
-      const a = Number(b.dataset.rb);
-      const saved = ensureSprint1State(JSON.parse(state.branches[a]));
-      saved.branches = state.branches; saved.ended = false;
-      state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home';
-      saveAutoProgress();
+  if (preview) {
+    appEl.querySelector('#btn-back-album').onclick = () => {
+      memorialPreviewMode = false;
+      activeTab = 'album';
       render();
     };
-  });
-  appEl.querySelector('#btn-restart').onclick = () => {
+  } else {
+    appEl.querySelectorAll('[data-rb]').forEach(b => {
+      b.onclick = () => {
+        const a = Number(b.dataset.rb);
+        const saved = ensureSprint1State(JSON.parse(state.branches[a]));
+        saved.branches = state.branches; saved.ended = false;
+        state = saved; draft = []; inspectedId = null; moreMenuOpen = false; activeTab = 'home';
+        saveAutoProgress();
+        render();
+      };
+    });
+    appEl.querySelector('#btn-restart').onclick = () => {
+      clearAutoSave();
+      state = null; introStep = 0; rerollUsed = false;
+      pickedOrigin = rollOrigin(); pickedTalent = pickedOrigin.talents[0].id;
+      renderIntro();
+    };
     clearAutoSave();
-    state = null; introStep = 0; rerollUsed = false;
-    pickedOrigin = rollOrigin(); pickedTalent = pickedOrigin.talents[0].id;
-    renderIntro();
-  };
-  clearAutoSave();
+  }
 }
 
 initSpritesAndRender();

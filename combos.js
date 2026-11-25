@@ -70,7 +70,7 @@ export const SCHEDULE_COMBOS = [
     id: 'cb_warm_home', name: '烟火良宵', stage: 'adult', crestIco: 'heart',
     req: ['date_partner', 'play_kid'],
     pills: ['伴侣 +3', '亲子 +3'],
-    desc: '伴侣亲密 +3 · 亲子羁绊 +3 · 心态 +3',
+    desc: '伴侣好感度 +3 · 亲子羁绊 +3 · 心态 +3',
     hint: '伴侣约会 + 高质量陪娃',
     bonus: { partnerInt: 3, kidBond: 3, mood: 3 }
   },

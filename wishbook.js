@@ -68,7 +68,8 @@ const CHILD_TREASURES_5 = [
 function countChildTreasures(state) {
   const items = state.items || [];
   let cnt = 0;
-  if (items.includes('红色悠悠球') || items.includes('复古芭比娃娃')) cnt++;
+  // P1-16：兼容 8岁悠悠球/红色悠悠球 与 8岁芭比娃娃/复古芭比娃娃 两套名称
+  if (items.includes('8岁悠悠球') || items.includes('红色悠悠球') || items.includes('8岁芭比娃娃') || items.includes('复古芭比娃娃')) cnt++;
   for (const name of CHILD_TREASURES_5) {
     if (items.includes(name)) cnt++;
   }
@@ -86,16 +87,17 @@ export function computeWishbookData(state, getNetWorthFn) {
   const partnerInt = Math.round(state.relations?.partner?.intimacy || 0);
   const married = Boolean(state.relations?.partner?.married);
   const hsLoved = Boolean(state.romance?.hsDatedOnce);
-  const zkPassed = state.schoolTier === 'key_high' || Boolean(state.examHistory?.zk && state.examHistory.zk.finalScore >= 560);
+  // P1-10：重点高中章严格看实际录取 schoolTier === 'key_high'，绝不因分数达 560 选职校而误盖章
+  const zkPassed = state.schoolTier === 'key_high' || state.stampedWishes.includes('m_zk');
   const gkPassed = Boolean(state.university && state.university.tier <= 3);
   const jobGood = Boolean(state.age >= (state.gradAge || 22) && (state.jobLevel >= 2 || (state.stats?.pro || 0) >= 45));
   const hasHouse = Boolean(state.house);
   const worldDone = (state.worldTrips || 0) >= 1;
 
-  // 财富三阶（100万 / 500万 / 1000万）
-  const w100 = nw >= 1000000;
-  const w500 = nw >= 5000000;
-  const w1000 = nw >= 10000000;
+  // 财富三阶（100万 / 500万 / 1000万）：已盖章记录持久化，资产回落不熄灭已得印章，每档统一发 1 张券（共 3 张）
+  const w100 = nw >= 1000000 || state.stampedWishes.includes('w_nw_100');
+  const w500 = nw >= 5000000 || state.stampedWishes.includes('w_nw_500');
+  const w1000 = nw >= 10000000 || state.stampedWishes.includes('w_nw_1000');
   const nextWealthTarget = !w100 ? 100 : !w500 ? 500 : 1000;
   const wealthPct = Math.min(100, Math.round((nwWan / nextWealthTarget) * 100));
 
@@ -154,9 +156,9 @@ export function computeWishbookData(state, getNetWorthFn) {
           ],
           rewardText: '每过一档送重随券×1',
           subMilestones: [
-            { id: 'w_nw_100', done: w100, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; } },
-            { id: 'w_nw_500', done: w500, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; s.stats.mood = Math.min(100, s.stats.mood + 5); } },
-            { id: 'w_nw_1000', done: w1000, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 2; s.stats.mood = Math.min(100, s.stats.mood + 8); } }
+            { id: 'w_nw_100', done: nw >= 1000000, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; } },
+            { id: 'w_nw_500', done: nw >= 5000000, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; s.stats.mood = Math.min(100, s.stats.mood + 5); } },
+            { id: 'w_nw_1000', done: nw >= 10000000, grant: (s) => { s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; s.stats.mood = Math.min(100, s.stats.mood + 8); } }
           ]
         },
         {
