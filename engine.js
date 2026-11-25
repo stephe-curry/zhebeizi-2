@@ -34,6 +34,25 @@ export function clamp(v, min = 0, max = 100) {
 
 export function ensureSprint1State(s) {
   if (!s) return s;
+  // P1-17：更深残缺旧档全量防御补齐，杜绝 TypeError
+  if (!s.stats || typeof s.stats !== 'object') {
+    s.stats = { knowledge: 20, numLogic: 20, pro: 0, expr: 20, selfCare: 20, health: 80, mood: 70, fatigue: 0 };
+  }
+  if (!s.floors || typeof s.floors !== 'object') s.floors = { knowledge: 0, numLogic: 0, pro: 0, expr: 0, selfCare: 0 };
+  if (!s.usedThisYear || typeof s.usedThisYear !== 'object') s.usedThisYear = {};
+  if (!s.unusedYears || typeof s.unusedYears !== 'object') s.unusedYears = { knowledge: 0, numLogic: 0, pro: 0, expr: 0, selfCare: 0 };
+  if (!s.relations || typeof s.relations !== 'object') s.relations = { parents: { intimacy: 70, missedTurns: 0 }, friend: { name: '同桌小周', intimacy: 55, missedTurns: 0 }, partner: null };
+  if (!s.relations.parents) s.relations.parents = { intimacy: 70, missedTurns: 0 };
+  if (!s.relations.friend) s.relations.friend = { name: '同桌小周', intimacy: 55, missedTurns: 0 };
+  if (!s.templates || typeof s.templates !== 'object') s.templates = { balance: [] };
+  if (!Array.isArray(s.templates.balance)) s.templates.balance = [];
+  if (!s.branches || typeof s.branches !== 'object') s.branches = {};
+  if (!Array.isArray(s.albumPhotos)) s.albumPhotos = [];
+  if (!Array.isArray(s.experiences)) s.experiences = [];
+  if (!Array.isArray(s.items)) s.items = [];
+  if (!Array.isArray(s.triggeredEvents)) s.triggeredEvents = [];
+  if (!Array.isArray(s.lastDraft)) s.lastDraft = [];
+  if (!Array.isArray(s.pendingMandatory)) s.pendingMandatory = [];
   if (!Array.isArray(s.hexCards)) s.hexCards = [];
   if (!Array.isArray(s.hexTriggeredAges)) s.hexTriggeredAges = [];
   if (typeof s.hexRerollTickets !== 'number') s.hexRerollTickets = 0;
@@ -41,6 +60,7 @@ export function ensureSprint1State(s) {
   if (typeof s.comboCountTotal !== 'number') s.comboCountTotal = 0;
   if (typeof s.hexComboRewardTier !== 'number') s.hexComboRewardTier = 0;
   if (typeof s.gaokaoHexBonus !== 'number') s.gaokaoHexBonus = 0;
+  if (typeof s.gaokaoQualifierBonus !== 'number') s.gaokaoQualifierBonus = 0;
   if (typeof s.bonusSeasonalId === 'undefined') s.bonusSeasonalId = null;
   if (!s.seasonOffer) s.seasonOffer = null;
   // Sprint 2 字段兼容
@@ -66,6 +86,26 @@ export function ensureSprint1State(s) {
   if (typeof s.arcadePlayedThisTurn !== 'boolean') s.arcadePlayedThisTurn = false;
   ensureDreamState(s);
   ensureExamState(s);
+  ensureRomanceState(s);
+  ensureWishbookState(s);
+
+  // P1-21：历史旧档缺失强制决策队列自动重建
+  const pushMand = (k) => { if (!s.pendingMandatory.includes(k)) s.pendingMandatory.push(k); };
+  if (!s.sportsDayDone && (s.age > 14 || (s.age === 14 && s.subTurn >= 3))) {
+    pushMand('sports_day');
+  }
+  const gkAge = s.gaokaoNextAge || 18;
+  const gkSub = s.gaokaoNextSubTurn || 2;
+  const pastGk = s.age > gkAge || (s.age === gkAge && s.subTurn > gkSub);
+  if (!s.gaokaoDone && pastGk) {
+    pushMand('gaokao');
+  }
+  if (!s.track && s.gaokaoDone && s.age >= (s.gradAge || 22)) {
+    pushMand('grad');
+  }
+  if (!s.schoolTier && (s.age > 15 || (s.age === 15 && s.subTurn >= 3)) && s.age <= 18) {
+    pushMand('event_ms_zhongkao_15');
+  }
   return s;
 }
 
@@ -359,8 +399,9 @@ export function trainStat(state, key, extra = 0, opts = {}) {
   }
   // 付费补习规则：能力 <85 时额外 +1
   if (extra > 0 && cur < 85) gain += extra;
-  // 海克斯单项加成 & Sprint 2 动态状态 Buff 加成
+  // 海克斯单项加成 & Sprint 2 动态状态 Buff 加成 & P1-14 清北和解永久特质同步生效
   const hasBuff = id => (state.statusBuffs || []).some(b => b.id === id);
+  if ((key === 'knowledge' || key === 'pro') && state.dreams?.d_tsinghua?.outcome === 'pivot') gain += 1;
   if (key === 'knowledge' && (hasBuff('bf_hot_study') || hasBuff('bf_key_class') || hasBuff('bf_key_high') || hasBuff('bf_sprint'))) gain += 1;
   if (key === 'pro' && hasBuff('bf_work_star')) gain += 1;
   if (key === 'selfCare' && hasHex(state, 'hx_shop_1')) gain += 1;
@@ -444,13 +485,13 @@ export function getAvailableActions(state) {
       id: 'study_lit', cat: '1.成长与学习', name: '文科阅读（涨学识）', costCash: 0,
       chips: simLit.capped
         ? [{ t: `学识本阶已满(${simLit.D})`, k: 'gold' }]
-        : [{ t: `学识 +${Math.max(2, Math.round(simLit.dLit))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
+        : [{ t: `学识 +${Math.max(1, Math.round(simLit.dLit))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
     });
     actions.push({
       id: 'study_num', cat: '1.成长与学习', name: '数理解题（涨数理）', costCash: 0,
       chips: simNum.capped
         ? [{ t: `数理本阶已满(${simNum.D})`, k: 'gold' }]
-        : [{ t: `数理 +${Math.max(2, Math.round(simNum.dNum))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
+        : [{ t: `数理 +${Math.max(1, Math.round(simNum.dNum))}`, k: 'pos' }, { t: '心态 -1', k: 'neg' }]
     });
     const canTutor = state.tutoredThisYear < state.origin.eduLimit;
     const halfTutor = state.talent.id === 't_tutor' || state.origin.id === 'teacher';
@@ -727,16 +768,21 @@ export function executeTurn(state, draftIds) {
     if (eb && eb.stacks < 10) eb.stacks++;
   };
 
+  const executedIds = [];
   for (const id of draftIds) {
     const a = all.find(x => x.id === id);
     if (!a) continue;
     const isFlowDup = hasHex(state, 'hx_flow_engine') && (seenInDraft[id] || 0) >= 1;
     seenInDraft[id] = (seenInDraft[id] || 0) + 1;
 
-    // P1-06：补习额度与余额逐格校验，超额不扣费
+    // P1-06 / P1-05：补习额度与余额逐格校验，超额/缺钱不扣费且不计入连携
     if (id === 'study_tutor' && (state.tutoredThisYear >= state.origin.eduLimit || state.cash < a.costCash)) {
       continue;
     }
+    if (id === 'overtime' && state.overtimeThisYear >= 8) {
+      continue;
+    }
+    executedIds.push(id);
     if (a.costCash > 0) state.cash -= a.costCash;
     if (['study_lit', 'study_num', 'study_self', 'study_tutor', 'gaokao_sprint', 'pro_self', 'pro_course', 'overtime'].includes(id)) hasWorkStudy = true;
     if (['rest', 'exercise', 'square_dance'].includes(id)) { hasRestEx = true; chillCount++; }
@@ -994,7 +1040,7 @@ export function executeTurn(state, draftIds) {
           state.stats.mood = clamp(state.stats.mood + dm);
           if (!state.experiences.includes('exp_love_bond')) state.experiences.push('exp_love_bond');
           beatText = `伴侣好感度 +${inc} · 心态+${dm}`;
-          summary.push(`伴侣约会：亲密 +${inc}，心态 +${dm}`);
+          summary.push(`伴侣约会：好感度 +${inc}，心态 +${dm}`);
         }
         break;
       }
@@ -1112,8 +1158,8 @@ export function executeTurn(state, draftIds) {
     stepBeats.push({ id, name: a.name, text: beatText, kind: beatKind, isSeasonal: false });
   }
 
-  // ===== 排程 Combo 连携结算（含阶段校验与追梦专属加成）=====
-  const combosTriggered = detectCombos(draftIds, state);
+  // ===== 排程 Combo 连携结算（P1-05：仅基于实际成功执行的 executedIds 判定）=====
+  const combosTriggered = detectCombos(executedIds, state);
   const newlyDiscoveredCombos = [];
   let rerollTicketsEarned = 0;
   const cbMult = hasHex(state, 'hx_time_master') ? 2 : 1;
@@ -1346,7 +1392,9 @@ export function executeTurn(state, draftIds) {
   if (!triggeredEvent) {
     triggeredEvent = getMilestoneEventForTurn(state);
   }
-  const willGaokao = (state.age === 18 && state.subTurn === 2 && !state.gaokaoDone);
+  const gkTargetAge = state.gaokaoNextAge || 18;
+  const gkTargetSub = state.gaokaoNextSubTurn || 2;
+  const willGaokao = (state.age === gkTargetAge && state.subTurn === gkTargetSub && !state.gaokaoDone);
   let arcadeMoment = null;
   if (!triggeredEvent && !willGaokao) {
     // 追梦生命周期优先 -> 其次到龄到季自动跳出当期小游戏奇遇卡 -> 再次普通随机生活插曲
@@ -1386,8 +1434,12 @@ export function executeTurn(state, draftIds) {
   // 18 岁第 2 子回合末触发高考节点
   const needGaokao = willGaokao;
 
-  // P0-04：持久化待完成强制决策队列，确保刷新后读档必能恢复
+  // P0-04 / P0-02：持久化待完成强制决策队列（含小升初/中考放榜录取、校运会、高考、毕业择城），确保刷新后读档必能恢复
   if (!Array.isArray(state.pendingMandatory)) state.pendingMandatory = [];
+  if (triggeredEvent && (triggeredEvent.id === 'ms_grad_12' || triggeredEvent.id === 'ms_zhongkao_15')) {
+    const evKey = `event_${triggeredEvent.id}`;
+    if (!state.pendingMandatory.includes(evKey)) state.pendingMandatory.push(evKey);
+  }
   if (needSportsDay && !state.pendingMandatory.includes('sports_day')) state.pendingMandatory.push('sports_day');
   if (needGaokao && !state.pendingMandatory.includes('gaokao')) state.pendingMandatory.push('gaokao');
 
@@ -1533,15 +1585,23 @@ export function runYearEnd(state) {
       lines.push(`年度房租支出：-${rent.toLocaleString()} 元${rentMult > 1 ? ' (留大城压力期)' : ''}`);
     } else {
       if (state.house.loan > 0) {
+        if (typeof state.house.loanMonthsLeft !== 'number') state.house.loanMonthsLeft = 240;
         let yrPaid = 0;
         for (let m = 0; m < 12 && state.house.loan > 0; m++) {
           const mInt = state.house.loan * (0.03 / 12);
-          const pay = Math.min(state.house.loan + mInt, state.house.pmtMo);
-          const prin = Math.max(0, pay - mInt);
-          state.house.loan = Math.max(0, state.house.loan - prin);
-          yrPaid += pay;
+          state.house.loanMonthsLeft = Math.max(0, state.house.loanMonthsLeft - 1);
+          // P1-09：第 240 期按实际本息精确收尾清零，杜绝残余尾款
+          if (state.house.loanMonthsLeft === 0) {
+            yrPaid += state.house.loan + mInt;
+            state.house.loan = 0;
+          } else {
+            const pay = Math.min(state.house.loan + mInt, state.house.pmtMo);
+            const prin = Math.max(0, pay - mInt);
+            state.house.loan = Math.max(0, Math.round((state.house.loan - prin) * 100) / 100);
+            yrPaid += pay;
+          }
         }
-        if (state.house.loan < 5) state.house.loan = 0;
+        if (state.house.loan < 5) { state.house.loan = 0; state.house.loanMonthsLeft = 0; }
         const pmtYr = Math.round(yrPaid);
         yearExp += pmtYr;
         lines.push(`年度房贷还本付息：-${pmtYr.toLocaleString()} 元 (余贷 ${Math.round(state.house.loan/10000)} 万)`);
@@ -1616,18 +1676,7 @@ export function runYearEnd(state) {
     }
   }
 
-  if (state.cash < 0) {
-    state.debt += Math.abs(state.cash);
-    state.cash = 0;
-    lines.push(`【现金不足】转为应付欠款，当前欠款 ${state.debt.toLocaleString()} 元（不触发结束，可卖金/加班补救）`);
-  } else if (state.debt > 0 && state.cash > 0) {
-    const payDebt = Math.min(state.debt, state.cash);
-    state.debt -= payDebt;
-    state.cash -= payDebt;
-    lines.push(`自动偿还欠款：-${payDebt.toLocaleString()} 元`);
-  }
-
-  // Sprint 2：宠物年度成长 / 温情告别 & 学区房孩子学业加成
+  // P1-12：宠物年度口粮与成长先于欠款清算，避免现金被二次扣成负数
   const petRep = advancePetYear(state);
   if (petRep) {
     if (petRep.line) lines.push(petRep.line);
@@ -1641,6 +1690,18 @@ export function runYearEnd(state) {
       });
     }
   }
+
+  if (state.cash < 0) {
+    state.debt += Math.abs(state.cash);
+    state.cash = 0;
+    lines.push(`【现金不足】转为应付欠款，当前欠款 ${state.debt.toLocaleString()} 元（不触发结束，可卖金/加班补救）`);
+  } else if (state.debt > 0 && state.cash > 0) {
+    const payDebt = Math.min(state.debt, state.cash);
+    state.debt -= payDebt;
+    state.cash -= payDebt;
+    lines.push(`自动偿还欠款：-${payDebt.toLocaleString()} 元`);
+  }
+
   if (state.child && state.house?.trait === 'school' && state.age - state.child.bornAge <= 18) {
     state.child.study = clamp(state.child.study + 3);
     lines.push('【学区房加成】孩子年度学业额外 +3');
@@ -1682,14 +1743,7 @@ export function runYearEnd(state) {
     }
   }
 
-  // 5. 人生树分叉自动存档（18 / 30 / 50 岁：存为已跨入新年的第 1 季起点，恢复后绝不重复触发年结！）
-  if ([18, 30, 50].includes(state.age)) {
-    const snapBranch = { ...state, age: state.age + 1, subTurn: 1, branches: {} };
-    state.branches[state.age] = JSON.stringify(snapBranch);
-    lines.push(`【人生树分叉点】已自动保存 ${state.age} 岁存档，可随时回溯重走！`);
-  }
-
-  // 6. 推进年龄与终章判定
+  // 5. 推进年龄与重置年度计数
   const finishedAge = state.age;
   state.age++;
   state.subTurn = 1;
@@ -1698,6 +1752,13 @@ export function runYearEnd(state) {
   state.emoBuyThisYear = 0;
   state.flipGameThisYear = 0;
   state.relations.parents.helpedThisYear = false;
+
+  // 6. P1-07：在完成年切换与年度计数清零后再拍 18/30/50 岁分支快照，恢复后状态与实时新年完全一致
+  if ([18, 30, 50].includes(finishedAge)) {
+    const snapBranch = { ...state, branches: {} };
+    state.branches[finishedAge] = JSON.stringify(snapBranch);
+    lines.push(`【人生树分叉点】已自动保存 ${finishedAge} 岁存档，可随时回溯重走！`);
+  }
 
   const extendHealthReq = hasHex(state, 'hx_sleep_3') ? 45 : 60;
   if (state.stats.health <= 0) {
@@ -1717,9 +1778,12 @@ export function runYearEnd(state) {
 }
 
 export function getNetWorth(state) {
-  const houseNet = state.house ? (state.house.value - state.house.loan) : 0;
-  const goldVal = Math.round(state.goldGrams * state.goldPrice);
-  return state.cash + houseNet + goldVal - state.debt;
+  const houseNet = state.house ? Math.round(state.house.value - state.house.loan) : 0;
+  const goldVal = Math.round((state.goldGrams || 0) * (state.goldPrice || 0));
+  // P1-10：三年定投未到期冻结本金计入净资产，兑付后自动转入现金不重复计算
+  const tenYr = getHexInstance(state, 'hx_ten_years');
+  const lockedCash = (tenYr && !tenYr.done && tenYr.savedCash > 0) ? Math.round(tenYr.savedCash) : 0;
+  return Math.round((state.cash || 0) + lockedCash + houseNet + goldVal - (state.debt || 0));
 }
 
 // 供「家与账」红绿收支天平实时预估本年现金流（进账 vs 刚性账单）

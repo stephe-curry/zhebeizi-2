@@ -199,7 +199,7 @@ export const APPROVED_SYSTEM_ANCHORS = [
   { id: 'ev_mid_scam_64', review_status: 'APPROVED', gender: 'any', priority: 'P2', age: 64, subTurn: 2, title: '[系统机制节点] 社区免费领鸡蛋与“高息养老理财”', summary: '检验「学识/数理/理财」与「高亲密子女」双护城河。',
     choices: [
       { label: '用学识与数理常识当场识破（需学识≥55 或数理≥55 或自理≥55，心态 +4）', reqAny: { knowledge: 55, numLogic: 55, selfCare: 55 }, effects: { mood: 4, exp: 'exp_anti_scam' } },
-      { label: '打电话问问孩子/老伴意见（子女或伴侣亲密≥60 可成功拦截，亲密 +3）', reqRelation: 60, effects: { mood: 3, exp: 'exp_anti_scam' } },
+      { label: '打电话问问孩子/老伴意见（子女亲密或伴侣好感度≥60 可成功拦截，心态 +3）', reqRelation: 60, effects: { mood: 3, exp: 'exp_anti_scam' } },
       { label: '贪图高息投 8 万元进去（大概率踩坑亏掉 6 万，心态 -8）', effects: { cash: -60000, mood: -8 } }
     ]
   }

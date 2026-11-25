@@ -272,6 +272,21 @@ export function getMilestoneEventForTurn(state) {
   return null;
 }
 
+// P0-02：支持读档强制恢复未完成的小升初/中考放榜事件
+export function rebuildMandatoryMilestoneEvent(state, id) {
+  const savedIdx = state.triggeredEvents.indexOf(id);
+  const oldAge = state.age;
+  const oldSub = state.subTurn;
+  if (savedIdx >= 0) state.triggeredEvents.splice(savedIdx, 1);
+  if (id === 'ms_grad_12') { state.age = 12; state.subTurn = 2; }
+  else if (id === 'ms_zhongkao_15') { state.age = 15; state.subTurn = 2; }
+  const ev = getMilestoneEventForTurn(state);
+  state.age = oldAge;
+  state.subTurn = oldSub;
+  if (savedIdx >= 0 && !state.triggeredEvents.includes(id)) state.triggeredEvents.push(id);
+  return ev;
+}
+
 // ===== 2. 庞大分阶段随机事件池（7 子阶段 + 8 大真实年份 + 宠物链 + 双性别 + 伏笔连锁）=====
 export const RANDOM_EVENT_POOL = [
   // ---------- s1 快乐童年 (6–12 岁) ----------

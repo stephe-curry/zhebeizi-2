@@ -256,8 +256,8 @@ export function computeWishbookData(state, getNetWorthFn) {
           curText: jobGood ? `已站稳 L${state.jobLevel}` : `专业 ${Math.round(state.stats.pro)} / 50`,
           pct: jobGood ? 100 : Math.min(99, Math.round((state.stats.pro / 50) * 100)),
           done: jobGood,
-          rewardText: '现金 ¥5,000',
-          grant: (s) => { s.cash += 5000; }
+          rewardText: '现金 ¥5,000 + 重随券×1',
+          grant: (s) => { s.cash += 5000; s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; }
         },
         {
           id: 'm_house',
@@ -276,8 +276,8 @@ export function computeWishbookData(state, getNetWorthFn) {
           curText: worldDone ? `已环游 ${state.worldTrips} 站` : `60岁后解锁`,
           pct: worldDone ? 100 : (state.age >= 60 ? Math.min(95, Math.round(((state.cash || 0) / 50000) * 100)) : 0),
           done: worldDone,
-          rewardText: '人生圆满金印章',
-          grant: (s) => { s.stats.mood = Math.min(100, s.stats.mood + 10); }
+          rewardText: '人生圆满金印章 + 重随券×1',
+          grant: (s) => { s.stats.mood = Math.min(100, s.stats.mood + 10); s.hexRerollTickets = (s.hexRerollTickets || 0) + 1; }
         }
       ]
     }

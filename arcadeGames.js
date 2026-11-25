@@ -824,9 +824,11 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       health: grade === 'S' ? 2 : 1,
       mood: grade === 'S' ? 4 : grade === 'A' ? 3 : 2,
       cash: !isHurdleClimax && grade === 'S' ? 40 : 0,
-      note: isHurdleClimax
+      note: opts.climaxDreamId === 'd_hurdle'
         ? `奥运${sportName}决赛完美发力 ${hurdlesCleared} 次，冲线得分 ${finalScore}（${grade} 级）！`
-        : `一路狂奔冲进食堂窗口，得分 ${finalScore}（${grade} 级）！`
+        : opts.qualifierDreamId === 'd_hurdle'
+          ? `省田径锦标赛 · ${sportName}选拔完美发力 ${hurdlesCleared} 次，得分 ${finalScore}（${grade} 级）！`
+          : `一路狂奔冲进食堂窗口，得分 ${finalScore}（${grade} 级）！`
     });
   }
 
@@ -920,11 +922,11 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
             hurdlesCleared++;
             hdEl.textContent = String(hurdlesCleared);
             triggerHaptic('medium');
-            pops.push({ x: px, y: playerY - 30, txt: '完美跨栏 +32', col: '#fde047', life: 0.85 });
+            pops.push({ x: px, y: playerY - 30, txt: isHurdleClimax ? '完美发力 +32' : '完美跨栏 +32', col: '#fde047', life: 0.85 });
           } else {
             score = Math.max(0, score - 14);
             triggerHaptic('heavy');
-            pops.push({ x: px, y: playerY - 22, txt: '绊栏 -14', col: '#fca5a5', life: 0.8 });
+            pops.push({ x: px, y: playerY - 22, txt: isHurdleClimax ? '节奏失误 -14' : '绊栏 -14', col: '#fca5a5', life: 0.8 });
           }
         } else if (ob.kind === 'block') {
           score = Math.max(0, score - 18);
@@ -965,7 +967,12 @@ export function openBellDashGame(container, state, opts = {}, onFinish) {
       ctx.fillStyle = isHurdleClimax ? '#f8fafc' : '#4a3728';
       ctx.font = 'bold 10.5px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('红白栏架点「跨栏」飞跃 · 深色路障点左右变道躲避', W / 2, 22);
+      ctx.fillText(
+        isHurdleClimax
+          ? `金色发力点按「爆发冲刺」提速 · 深色障碍左右变道躲避`
+          : '红白栏架点「跨栏」飞跃 · 深色路障点左右变道躲避',
+        W / 2, 22
+      );
     }
 
     // 绘制障碍物

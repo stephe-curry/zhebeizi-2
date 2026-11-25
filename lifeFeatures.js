@@ -177,7 +177,8 @@ export const TUCK_GOODS = [
 ];
 
 export function drawSnackCard(state) {
-  const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
+  // P1-11：与 tuckShopV2.js 货架报价完全一致，个体户与财富 2 羁绊均享 9 折
+  const disc = (getBondTier(state, 'wealth') >= 2 || state.origin?.id === 'merchant') ? 0.9 : 1.0;
   const price = Math.round(15 * disc);
   if (state.cash < price) return { ok: false, msg: `零花钱不足 ¥${price}` };
   state.cash -= price;
@@ -221,7 +222,8 @@ export function buyTuckGood(state, goodId) {
   const g = TUCK_GOODS.find(x => x.id === goodId);
   if (!g) return { ok: false, msg: '商品不存在' };
   if (state.items.includes(g.item)) return { ok: false, msg: '已经珍藏在木格旧物盒里啦' };
-  const disc = getBondTier(state, 'wealth') >= 2 ? 0.9 : 1.0;
+  // P1-11：与 tuckShopV2.js 货架报价完全一致，个体户与财富 2 羁绊均享 9 折
+  const disc = (getBondTier(state, 'wealth') >= 2 || state.origin?.id === 'merchant') ? 0.9 : 1.0;
   const price = Math.round(g.cost * disc);
   if (state.cash < price) return { ok: false, msg: `零花钱不足 ¥${price}` };
   state.cash -= price;

@@ -369,7 +369,7 @@ export function startRelationshipWith(state, cand) {
   state.romance.aff[cand.id] = curAff;
   state.romance.warnedCold = false;
   if (state.age <= 18) state.romance.hsDatedOnce = true;
-  state.stats.mood = Math.min(100, (state.stats.mood || 70) + 6);
+  state.stats.mood = Math.min(100, (state.stats.mood ?? 70) + 6);
 }
 
 // 玩家主动提出分手（P1-09：用 ?? 保留 0 心态下界，绝不回弹到 65）
@@ -401,7 +401,7 @@ export function checkPartnerBreakupOnTurnEnd(state, interactedThisTurn) {
   if (p.intimacy < 25) {
     state.romance.exHistory.push({ name: p.name, age: state.age, by: 'partner_low' });
     state.relations.partner = null;
-    state.stats.mood = Math.max(0, (state.stats.mood || 70) - 7);
+    state.stats.mood = Math.max(0, (state.stats.mood ?? 70) - 7);
     return {
       type: 'breakup',
       title: `${p.name} 向你提出了分手`,
@@ -414,7 +414,7 @@ export function checkPartnerBreakupOnTurnEnd(state, interactedThisTurn) {
     if (p.intimacy < 65) {
       state.romance.exHistory.push({ name: p.name, age: state.age, by: 'partner_distance' });
       state.relations.partner = null;
-      state.stats.mood = Math.max(0, (state.stats.mood || 70) - 6);
+      state.stats.mood = Math.max(0, (state.stats.mood ?? 70) - 6);
       return {
         type: 'breakup',
         title: `毕业十字路口 · ${p.name} 提出和平分手`,
@@ -436,7 +436,7 @@ export function checkPartnerBreakupOnTurnEnd(state, interactedThisTurn) {
     state.romance.exHistory.push({ name: p.name, age: state.age, by: 'partner_cold' });
     state.relations.partner = null;
     state.romance.warnedCold = false;
-    state.stats.mood = Math.max(0, (state.stats.mood || 70) - 6);
+    state.stats.mood = Math.max(0, (state.stats.mood ?? 70) - 6);
     return {
       type: 'breakup',
       title: `长期冷落 · ${p.name} 主动提出了分手`,
@@ -619,11 +619,26 @@ export async function openRomanceHubModal(state, mountOverlay, clearOverlay, onC
           state.romance.chatIdx[cand.id] = (state.romance.chatIdx[cand.id] || 0) + 1;
           if (isGood && chatObj.good.bonus) {
             const b = chatObj.good.bonus;
-            if (b.mood) state.stats.mood = Math.min(100, state.stats.mood + b.mood);
-            if (b.health) state.stats.health = Math.min(100, state.stats.health + b.health);
-            if (b.expr) state.stats.expr = Math.min(100, state.stats.expr + b.expr);
-            if (b.knowledge) { state.stats.knowledge = Math.min(100, state.stats.knowledge + b.knowledge); if (state.statsRaw) state.statsRaw.knowledge = Math.min(100, state.statsRaw.knowledge + b.knowledge); }
-            if (b.numLogic) { state.stats.numLogic = Math.min(100, (state.stats.numLogic || 20) + b.numLogic); if (state.statsRaw) state.statsRaw.numLogic = Math.min(100, state.statsRaw.numLogic + b.numLogic); }
+            const capD = state.age <= 12 ? 62 : state.age <= 15 ? 80 : 100;
+            if (b.mood) state.stats.mood = Math.min(100, (state.stats.mood ?? 70) + b.mood);
+            if (b.health) state.stats.health = Math.min(100, (state.stats.health ?? 80) + b.health);
+            if (b.expr) state.stats.expr = Math.min(100, (state.stats.expr ?? 20) + b.expr);
+            if (b.knowledge) {
+              if (state.age <= 18 && state.statsRaw) {
+                state.statsRaw.knowledge = Math.min(capD, (state.statsRaw.knowledge ?? state.stats.knowledge) + b.knowledge);
+                state.stats.knowledge = Math.round(state.statsRaw.knowledge);
+              } else {
+                state.stats.knowledge = Math.min(capD, (state.stats.knowledge ?? 20) + b.knowledge);
+              }
+            }
+            if (b.numLogic) {
+              if (state.age <= 18 && state.statsRaw) {
+                state.statsRaw.numLogic = Math.min(capD, (state.statsRaw.numLogic ?? state.stats.numLogic ?? 20) + b.numLogic);
+                state.stats.numLogic = Math.round(state.statsRaw.numLogic);
+              } else {
+                state.stats.numLogic = Math.min(capD, (state.stats.numLogic ?? 20) + b.numLogic);
+              }
+            }
           }
           lastFeedback = { good: isGood, delta, res: isGood ? chatObj.good.res : chatObj.bad.res };
           renderHub();

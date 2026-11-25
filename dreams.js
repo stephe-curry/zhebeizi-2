@@ -175,8 +175,8 @@ export function getDreamScheduleActions(state) {
     if (d.stage < 1 || d.stage >= 4) continue;
     // P0-03：职校分流期严禁显示任何清北贴纸
     if (id === 'd_tsinghua' && state.age >= 16 && state.age <= 18 && state.schoolTier === 'vocational') continue;
-    // P1-12：外科医途在成年后需本科及以上学历才显示临床轮转
-    if (id === 'd_surgeon' && state.age >= 19 && state.gaokaoDone && state.university && state.university.tier > 2) continue;
+    // P1-15：外科医途在成年后需 985+ 学历或已通过成人医学补考（medQualified）才显示临床轮转
+    if (id === 'd_surgeon' && state.age >= 19 && state.gaokaoDone && state.university && state.university.tier > 2 && !d.medQualified) continue;
     // 19 岁成年后：如果已经认真追逐满上限，未立志的业余兴趣自动收拢不占面板宽度
     if (!isChild && getSeriousDreamCount(state) >= getSeriousDreamCap(state) && d.stage < 3) continue;
 
@@ -271,8 +271,18 @@ export function executeDreamAction(state, actionId, opts = {}) {
     if ((d.trains === 1 || d.trains % 3 === 0) && d.songsCount < 10) d.songsCount++;
   }
   if (id === 'd_surgeon') {
-    if (state.age <= 18) state.stats.knowledge = clamp(state.stats.knowledge + 1);
-    else state.stats.pro = clamp(state.stats.pro + 1);
+    if (state.age <= 18) {
+      // P1-02：18 岁及以下同步写入 statsRaw 并严格按学段教材上限 D 钳位
+      const capD = state.age <= 12 ? 62 : state.age <= 15 ? 80 : 100;
+      if (state.statsRaw) {
+        state.statsRaw.knowledge = Math.min(capD, (state.statsRaw.knowledge ?? state.stats.knowledge) + 1);
+        state.stats.knowledge = Math.round(state.statsRaw.knowledge);
+      } else {
+        state.stats.knowledge = Math.min(capD, state.stats.knowledge + 1);
+      }
+    } else {
+      state.stats.pro = clamp(state.stats.pro + 1);
+    }
   }
   if (id === 'd_esport') state.stats.selfCare = clamp(state.stats.selfCare + (d.trains % 2 === 0 ? 1 : 0));
 
@@ -299,7 +309,7 @@ export function rollDreamLifecycleEvent(state, draftIds = []) {
     if (id === 'd_tsinghua' && (!state.gaokaoDone || !isTsinghuaActiveAllowed(state))) continue;
     if (id === 'd_hurdle' && !d.qualified) continue;
     if (id === 'd_singer' && (d.songsCount || 0) < 3) continue;
-    if (id === 'd_surgeon' && (!d.qualified || !state.university || state.university.tier > 2)) continue;
+    if (id === 'd_surgeon' && (!d.qualified || (!d.medQualified && (!state.university || state.university.tier > 2)))) continue;
 
     const readyByXp = d.xp >= 68 || (state.age >= meta.climaxMaxAge - 1 && d.xp >= 52);
     const inAge = state.age >= meta.climaxMinAge && state.age <= meta.climaxMaxAge;
@@ -316,7 +326,7 @@ export function rollDreamLifecycleEvent(state, draftIds = []) {
     if (d.stage !== 3 || d.seenSlices.includes('qualifier')) continue;
     if (state.age > meta.climaxMaxAge) continue;
     if (id === 'd_tsinghua' && (!isTsinghuaActiveAllowed(state) || state.age < 17)) continue;
-    if (id === 'd_surgeon' && (state.age < 21 || !state.university || state.university.tier > 2)) continue;
+    if (id === 'd_surgeon' && (state.age < 21 || (!d.medQualified && (!state.university || state.university.tier > 2)))) continue;
     if (d.xp >= 42) {
       return buildDreamQualifierEvent(state, id);
     }
@@ -383,6 +393,8 @@ function pickWeightedSparkDream(state, draftIds) {
     if (d.stage > 0 || d.seenSlices.includes('spark')) continue;
     // 奥运田径冠军梦改为仅通过 14 岁初中校运会夺冠动态开启，绝不随机写死跨栏
     if (id === 'd_hurdle') continue;
+    // P1-03：职校分流期（16–18 岁）不再刷出清北启蒙火种
+    if (id === 'd_tsinghua' && state.age >= 16 && state.age <= 18 && state.schoolTier === 'vocational') continue;
     if (isAdult && state.age > 28) continue;
     let w = 1.0;
     if (id === 'd_esport' && (draftIds.includes('summer_fc') || draftIds.includes('accompany_friend') || draftIds.includes('overtime'))) w += 3.2;
@@ -726,9 +738,11 @@ export function settleDreamQualifier(state, id, grade = 'B') {
   } else if (id === 'd_tsinghua') {
     state.stats.knowledge = clamp(state.stats.knowledge + 3);
     if (!state.gaokaoDone) {
-      state.gaokaoHexBonus = (state.gaokaoHexBonus || 0) + (grade === 'S' ? 4 : 3);
+      const addMock = grade === 'S' ? 4 : 3;
+      state.gaokaoHexBonus = (state.gaokaoHexBonus || 0) + addMock;
+      state.tsinghuaMockBonus = (state.tsinghuaMockBonus || 0) + addMock;
       if (!state.experiences.includes('exp_gaokao_sprint')) state.experiences.push('exp_gaokao_sprint');
-      detail = `统测一鸣惊人！锁定清北冲刺资格且高考总分额外 +${grade === 'S' ? 4 : 3} 分！`;
+      detail = `统测一鸣惊人！锁定清北冲刺资格且高考总分额外 +${addMock} 分！`;
     } else {
       state.cash += 6000;
       detail = '考研初试高分过线，获学业拔尖奖学金 +¥6,000，直通清北复试终面！';

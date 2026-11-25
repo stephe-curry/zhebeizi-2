@@ -18,7 +18,7 @@ import {
   SCHEDULE_COMBOS, detectCombos, getComboPartnerIds, getActionAnimSpec
 } from './combos.js?v=s70';
 import {
-  applyEventChoiceEffects
+  applyEventChoiceEffects, rebuildMandatoryMilestoneEvent
 } from './events.js?v=s70';
 import {
   getPetLifeStage, interactWithPet, getOrRollStageHotspot, claimStageHotspot,
@@ -325,7 +325,8 @@ function clearHeroStageAnimDom() {
   if (heroAnimTimer) { clearTimeout(heroAnimTimer); heroAnimTimer = null; }
   const anchor = document.getElementById('hero-tap');
   if (anchor) {
-    anchor.className = 'hero-anchor';
+    // P2-05：仅移除动画类，保留结构类 v5-hero 防布局失配
+    anchor.className = 'hero-anchor v5-hero';
     anchor.querySelectorAll('.hero-speech, .hero-prop, .hero-prop-sub').forEach(el => el.remove());
   }
   const light = document.getElementById('stage-light');
@@ -420,6 +421,8 @@ function triggerFloatPops(summaryList) {
 }
 
 function showToast(text) {
+  // P1-19：无槽操作（彩票/晋升/买卖/买车等）触发反馈时同步落盘，杜绝刷新回滚
+  saveAutoProgress();
   toastMsg = text;
   if (toastTimer) clearTimeout(toastTimer);
   const overlay = document.getElementById('phone-overlay-host');
@@ -476,7 +479,7 @@ function showV3Capture({ title, badge, bodyHtml, photoCaption, onDone, storyMode
   const stamp = getDateStamp(state.age, state.subTurn);
   const spUrl = sprites[state.gender]?.[stageIdx] || '';
 
-  if (photoCaption) {
+  if (photoCaption && !state.albumPhotos.some(p => p.age === state.age && p.title === photoCaption)) {
     state.albumPhotos.push({ age: state.age, stamp, title: photoCaption, stageIdx, bg: bgKey });
   }
 
@@ -1198,8 +1201,10 @@ function renderSocialTab(budget) {
     });
   }
 
-  const kidSummary = state.child ? getChildExamPreviewSummary(state) : null;
-  const kidEp = state.child ? ensureChildExamProfile(state) : null;
+  // P1-18：孩子满 6 岁入学后才建立成绩档案与年度培养方针，0–5 岁不提前建档
+  const kidAgeForExam = state.child ? (state.age - state.child.bornAge) : -1;
+  const kidSummary = kidAgeForExam >= 6 ? getChildExamPreviewSummary(state) : null;
+  const kidEp = kidAgeForExam >= 6 ? ensureChildExamProfile(state) : null;
 
   return `
     <div class="tab-page">
@@ -1337,6 +1342,11 @@ function bindMainEvents(actions, budget, cornerSticker) {
   appEl.querySelectorAll('[data-tab]').forEach(b => {
     b.onclick = () => {
       if (theaterState) stopTheater(true);
+      // P1-20：若存在未清强制弹窗或正在展示遮罩层，切页不覆盖强制决策
+      if (document.getElementById('phone-overlay-host') || (Array.isArray(state?.pendingMandatory) && state.pendingMandatory.length > 0)) {
+        resumePendingMandatory();
+        return;
+      }
       activeTab = b.dataset.tab; drawerOpen = false; render();
     };
   });
@@ -1575,10 +1585,34 @@ function bindMainEvents(actions, budget, cornerSticker) {
       playComboCollisionVfx(justFormed, !state.discoveredCombos.includes(justFormed.id), actions, getActionMeta, state, draft);
     }
   };
+  // P1-05：沿用与自定义模板统一按顺序预留现金与补习/加班配额，防止绕过入队校验
+  const filterAffordableDraft = (srcIds) => {
+    const actMap = new Map(actions.filter(a => !a.disabled).map(a => [a.id, a]));
+    let cashLeft = state.cash;
+    let tutorLeft = Math.max(0, (state.origin?.eduLimit ?? 99) - (state.tutoredThisYear || 0));
+    let otLeft = Math.max(0, 8 - (state.overtimeThisYear || 0));
+    const res = [];
+    for (const id of srcIds) {
+      if (res.length >= budget.available) break;
+      const a = actMap.get(id);
+      if (!a) continue;
+      if (id === 'study_tutor') {
+        if (tutorLeft <= 0 || cashLeft < a.costCash) continue;
+        tutorLeft--;
+      } else if (id === 'overtime') {
+        if (otLeft <= 0) continue;
+        otLeft--;
+      } else if (a.costCash > 0 && cashLeft < a.costCash) {
+        continue;
+      }
+      if (a.costCash > 0) cashLeft -= a.costCash;
+      res.push(id);
+    }
+    return res;
+  };
   const doReuse = () => {
     const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
-    const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
-    draft = state.lastDraft.filter(id => valid.has(id)).slice(0, budget.available);
+    draft = filterAffordableDraft(state.lastDraft);
     inspectedId = draft[draft.length - 1] || null;
     moreMenuOpen = false;
     const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
@@ -1599,8 +1633,7 @@ function bindMainEvents(actions, budget, cornerSticker) {
     moreMenuOpen = false;
     if (state.templates.balance.length) {
       const prevIds = new Set(detectCombos(draft, state).map(c => c.id));
-      const valid = new Set(actions.filter(a => !a.disabled).map(a => a.id));
-      draft = state.templates.balance.filter(id => valid.has(id)).slice(0, budget.available);
+      draft = filterAffordableDraft(state.templates.balance);
       inspectedId = draft[draft.length - 1] || null;
       const justFormed = detectCombos(draft, state).find(c => !prevIds.has(c.id));
       showToast('已载入自定义模板');
@@ -1617,6 +1650,8 @@ function bindMainEvents(actions, budget, cornerSticker) {
 
   // 执行本回合：收起抽屉 -> 播放 1.8s 手账连播小剧场（可轻点秒跳）-> 衔接大节点 / 年度决算 / 命运海克斯觉醒
   bind('#v5-exec', () => {
+    // P1-20：执行前守卫，若有未完成的强制决策则先拉回完成
+    if (resumePendingMandatory()) return;
     const execDraft = [...draft];
     const res = executeTurn(state, execDraft);
     draft = [];
@@ -1631,6 +1666,10 @@ function bindMainEvents(actions, budget, cornerSticker) {
     const needGrad = state.age === state.gradAge && state.subTurn === 1 && !state.track;
     const afterCoreNodes = () => {
       if (res.needGaokao) return openGaokaoV3(() => checkPendingHextech());
+      // P1-16：若年末报告与毕业择城同季到达，先展示上一年年报再衔接毕业择城，不丢年报
+      if (res.yearEndReport && needGrad) {
+        return showYearEndV3(res.yearEndReport, () => openGradV3(() => checkPendingHextech()));
+      }
       if (needGrad) return openGradV3(() => checkPendingHextech());
       if (res.yearEndReport) return showYearEndV3(res.yearEndReport, () => checkPendingHextech());
       if (!checkPendingHextech()) {
@@ -2224,6 +2263,11 @@ function showApprovedEventV3(ev, next, opts = {}) {
       b.onclick = () => {
         const choice = ev.choices[Number(b.dataset.ci)];
         const res = applyEventChoiceEffects(state, choice);
+        // P0-02：完成小升初/中考放榜选择后清除强制队列标记并立即落盘
+        if (ev.id === 'ms_grad_12' || ev.id === 'ms_zhongkao_15') {
+          clearMandatoryFlag(`event_${ev.id}`);
+          saveAutoProgress();
+        }
         if (res.photoCaption) {
           state.albumPhotos.push({
             age: state.age,
@@ -2354,6 +2398,17 @@ function clearMandatoryFlag(key) {
 function resumePendingMandatory() {
   if (!state || !Array.isArray(state.pendingMandatory) || !state.pendingMandatory.length) return false;
   const next = state.pendingMandatory[0];
+  if (next === 'event_ms_grad_12' || next === 'event_ms_zhongkao_15') {
+    const evId = next.replace(/^event_/, '');
+    const ev = rebuildMandatoryMilestoneEvent(state, evId);
+    if (ev) {
+      showApprovedEventV3(ev, () => {
+        clearMandatoryFlag(next);
+        saveAutoProgress(); render(); resumePendingMandatory();
+      }, { isMidTurn: false });
+      return true;
+    }
+  }
   if (next === 'sports_day' && !state.sportsDayDone) {
     openSportsDayTournament(state, mountOverlay, clearOverlay, () => {
       clearMandatoryFlag('sports_day');
@@ -2433,23 +2488,28 @@ function openGaokaoV3(afterDone) {
       if (repBtn) {
         repBtn.onclick = () => {
           state.repeatedGaokao = true;
-          // P1-04：复读不再把年龄倒拨回 17 岁导致重复年结，保留 18 岁第 3 季高四冲刺，19 岁再考
+          // P0-01：复读保留 18 岁第 3 季冲刺，并显式安排 19 岁第 2 季二次高考，绝不丢失第二次录取
           state.age = 18;
           state.subTurn = 3;
+          state.gaokaoNextAge = 19;
+          state.gaokaoNextSubTurn = 2;
           state.stats.mood = clamp(state.stats.mood - 8);
           state.examSeed = (state.examSeed || 100000) + 77;
           delete state.examHistory.gk;
           clearMandatoryFlag('gaokao');
           saveAutoProgress();
           finish();
-          showToast('毅然选择高四复读！继承当前全部学识、数理与四科底子再冲刺！');
+          showToast('毅然选择高四复读！19岁夏再战高考，继承当前全部学识、数理与四科底子！');
         };
       }
       host.querySelectorAll('[data-u]').forEach(b => {
         b.onclick = () => {
           const u = UNIVERSITIES.find(x => x.id === b.dataset.u);
           state.university = u; state.gaokaoDone = true; state.gradAge = (state.repeatedGaokao ? 19 : 18) + u.years;
+          delete state.gaokaoNextAge;
+          delete state.gaokaoNextSubTurn;
           clearMandatoryFlag('gaokao');
+          saveAutoProgress();
           if (u.abroad) {
             state.parentSupportLeft = Math.max(0, state.parentSupportLeft - u.cost);
             state.studyAbroadLeft -= u.cost;
@@ -2516,6 +2576,9 @@ function openGradV3(afterDone) {
         });
         box.querySelector('#g-go').onclick = () => {
           state.cityTier = selCity; state.track = TRACKS.find(x => x.id === selTrack);
+          // P1-16：常规与恢复路径统一清标并持久化
+          clearMandatoryFlag('grad');
+          saveAutoProgress();
           finish();
           if (afterDone) afterDone();
           else showToast(`落脚${CITIES[selCity].name.slice(0,4)}，开启职场新篇章！`);
@@ -2884,7 +2947,7 @@ function openHouseSheet() {
       };
       const sell = host.querySelector('#sell-h');
       if (sell) sell.onclick = () => {
-        const net = Math.round(state.house.value * (freeSellTax ? 1.0 : 0.98)) - state.house.loan;
+        const net = Math.round(state.house.value * (freeSellTax ? 1.0 : 0.98) - state.house.loan);
         if (state.cash + net < 0) return showToast('现金不足以补齐余贷差额');
         state.cash += net; state.house = null; clearOverlay(); render(); showToast(`卖房落袋 ¥${fmtMoney(net)}`);
       };
@@ -2896,7 +2959,7 @@ function openHouseSheet() {
           state.parentSupportLeft -= sup; state.cash -= (h.dp - sup);
           state.house = {
             id: h.id, tier: h.tier, name: h.name, trait: h.trait,
-            value: h.price, basePrice: h.price, loan: h.price - h.dp,
+            value: h.price, basePrice: h.price, loan: h.price - h.dp, loanMonthsLeft: 240,
             pmtMo: monthlyPmt(h.price - h.dp), grid: h.grid, buffActive: false
           };
           state.albumPhotos.push({ age: state.age, stamp: getDateStamp(state.age, state.subTurn), title: `购入「${h.name}」安家`, stageIdx: getSubStageIndex(state.age), bg: getBgKey(state.age) });
